@@ -68,7 +68,7 @@ test('exposeRole: disposing removes the provided service', () => {
 })
 
 test('apply: re-apply releases the previous role and stale disposal preserves the current service', async (t) => {
-  const { apply } = await import('../../lib/index.js')
+  const { apply } = await import('../../src/plugin/index.js')
   const stateDir = mkdtempSync(path.join(os.tmpdir(), 'ra-role-'))
   t.after(() => rmSync(stateDir, { recursive: true, force: true }))
   const ctx = makeCtx()
@@ -77,13 +77,13 @@ test('apply: re-apply releases the previous role and stale disposal preserves th
   const first = apply(ctx, { role: '', stateDir })
   t.after(() => first.dispose())
   assert.equal(first.unconfigured, true)
-  assert.equal(ctx.get('remote-agent:role'), 'worker')
+  assert.equal(ctx.get('ai-cluster:role'), 'worker')
   assert.ok(logs.some(message => message.includes('deployment role not configured; surfacing worker to other plugins')))
 
   const second = apply(ctx, { role: '', stateDir })
   t.after(() => second.dispose())
   first.dispose()
-  assert.equal(ctx.get('remote-agent:role'), 'worker')
+  assert.equal(ctx.get('ai-cluster:role'), 'worker')
   second.dispose()
-  assert.equal(ctx.get('remote-agent:role'), undefined)
+  assert.equal(ctx.get('ai-cluster:role'), undefined)
 })
