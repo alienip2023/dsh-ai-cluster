@@ -8,6 +8,8 @@ import z from '@deepseek-ai/schemastery'
 import { applyHub, applyWorkerBranch, exposeRole, registerSetupRoutes, mergeInstanceConfig } from '../assembly/index.js'
 import { newNodeToken, normalizeConfig, NODE_UPGRADE_PATH, HEALTH_PATH } from '../assembly/hub.js'
 import { generationKey, disposePrevious, setGeneration, clearGeneration } from './generations.js'
+import { registerClusterTools } from '../tools/register.js'
+import { registerUiRoutes } from '../http/routes.js'
 
 /** 角色取值。 */
 export const ROLE = Object.freeze({ HUB: 'hub', WORKER: 'worker', BOTH: 'both', AUTO: 'auto' })
@@ -143,6 +145,12 @@ export function apply(ctx, config = {}) {
     try { handles.hub?.disposeAll?.() } catch (err) {
       log('warn', 'hub dispose failed', { error: String(err?.message ?? err) })
     }
+    for (const disposers of [handles.tools, handles.routes]) {
+      if (!Array.isArray(disposers)) continue
+      for (const d of disposers) {
+        try { if (typeof d === 'function') d() } catch { /* already removed */ }
+      }
+    }
     if (Array.isArray(handles.setup)) {
       for (const d of handles.setup) {
         try { if (typeof d === 'function') d() } catch { /* already removed */ }
@@ -165,6 +173,10 @@ export function apply(ctx, config = {}) {
   // Hub services are made visible by the declarative inject on the loader row.
   if (role === ROLE.HUB || role === ROLE.BOTH) {
     handles.hub = applyHub(ctx, config)
+    const { registry, pulls } = handles.hub
+    const { defaults } = normalizeConfig(config)
+    handles.tools = registerClusterTools({ ctx, registry, pulls, log, defaults, sessionGate: handles.hub.sessionGate })
+    handles.routes = registerUiRoutes({ ctx, registry, pulls, log, defaults, sessionGate: handles.hub.sessionGate })
   }
 
   if (role === ROLE.WORKER || role === ROLE.BOTH) {
