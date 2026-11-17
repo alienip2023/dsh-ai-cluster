@@ -27,6 +27,9 @@ import {
   human, num, renderText, text, toPlainJson, withOutputContract,
 } from './contract.js'
 import { resolveNodeId } from './routing.js'
+import { TOOL_ALIASES } from '../compat/ra-names.js'
+
+const aliasByName = new Map(Object.entries(TOOL_ALIASES).map(([alias, name]) => [name, alias]))
 
 /** 相对工作区按副机 roots[0] 的路径格式解析；绝对路径仍由副机校验 roots。 */
 function resolveTaskWorkspace(workspace, node) {
@@ -47,7 +50,7 @@ function resolveTaskWorkspace(workspace, node) {
 }
 
 /**
- * 注册 cluster_* 工具。
+ * 注册 cluster_* 工具及旧名别名。
  * @returns {Array<() => void>} disposers
  */
 export function registerClusterTools({ ctx, registry, pulls, log: _log, defaults = {}, sessionGate = null, acl = null }) {
@@ -114,6 +117,8 @@ export function registerClusterTools({ ctx, registry, pulls, log: _log, defaults
       }
     }
     disposers.push(ctx.tools.register(definition))
+    const alias = aliasByName.get(definition.name)
+    if (alias) disposers.push(ctx.tools.register({ ...definition, name: alias }))
   }
 
   // ── cluster_selfcheck：派单前读取副机的真实就绪报告 ────────────────
