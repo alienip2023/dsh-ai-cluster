@@ -1,11 +1,23 @@
 /**
  * Name bridge: old `remote-agent:*` services and old `remote_*` tools -> new names.
  * Read-only alias table. Writes nothing, never consults a registry, never throws.
- * The only non-test file that may spell the old names; delete in one step (see
+ * Central mapping for owned service aliases and legacy tool names (see
  * REBUILD-ARCH-MODULES.md section 5.3).
  */
 const OLD_SERVICE_PREFIX = 'remote-agent:'
 const NEW_SERVICE_PREFIX = 'ai-cluster:'
+
+/** Services owned by this plugin, published under both prefixes. */
+export const PROVIDED_SERVICE_SUFFIXES = Object.freeze([
+  'registry', 'tasks', 'bot-network', 'config-sync', 'jobs', 'memory-link',
+  'node-policy', 'role',
+])
+
+export const SERVICE_ALIASES = Object.freeze(
+  Object.fromEntries(PROVIDED_SERVICE_SUFFIXES.map((suffix) => [
+    OLD_SERVICE_PREFIX + suffix, NEW_SERVICE_PREFIX + suffix,
+  ])),
+)
 
 /** The 23 old tool suffixes (REBUILD-ARCH-MODULES.md section 5.1). */
 const TOOL_SUFFIXES = Object.freeze([

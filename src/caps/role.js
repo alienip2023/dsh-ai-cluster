@@ -1,3 +1,5 @@
+import { dualProvide } from '../compat/dual-provide.js'
+
 export const ROLE_SERVICE = 'ai-cluster:role'
 
 /**
@@ -7,6 +9,5 @@ export const ROLE_SERVICE = 'ai-cluster:role'
  */
 export function exposeRole(ctx, role) {
   const value = role === 'hub' || role === 'both' ? role : 'worker'
-  if (typeof ctx?.provide !== 'function') return () => {}
-  return ctx.provide(ROLE_SERVICE, value)
+  return dualProvide(ctx, 'role', value)
 }
