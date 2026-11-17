@@ -1,0 +1,7 @@
+/** trust 模块公共入口。 */
+export * from './identity.js'
+export * from './hub-pin.js'
+export * from './pairing.js'
+export { decodeLegacyPairCode } from './pairing-compat.js'
+export * from './e2e.js'
+export * from './tls.js'
