@@ -1,0 +1,346 @@
+/** tools/contract：工具输出契约与视图辅助（逐字取自 lib/hub/tools.js 43-384，仅改名）。 */
+// views.js 仍在 lib/hub（不属于已完成层），按更正 3 直接引用旧模块。
+import { handoffView } from '../../lib/hub/views.js'
+
+/**
+ * 按 output.schema **删掉类型不匹配的 null**（可选字段）。
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 为什么需要（实测踩到两次）
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * DSH 会对工具返回值跑 `validateJsonSchemaValue(outputSchema, value)`。null 是
+ * 合法 JSON，但对声明为 `{ type: 'number' }` / `{ type: 'object' }` 的字段，
+ * null **不是**该类型 → 报：
+ *   `returned invalid output: "value.startedAt" must be a number`
+ *   `returned invalid output: "value.error" must be an object`
+ *
+ * 我们的共享投影层（views.js 的 exitView / errorView / taskView）出于 UI 侧的
+ * 需要会对"没有值"返回 null（UI 只是不渲染那一块）。但同一条投影也被工具复用，
+ * 于是工具调用整个失败 —— 而**任务其实已经派出去了**（有副作用却报失败）。
+ *
+ * ── 策略 ────────────────────────────────────────────────────────────────
+ * 只对**不在 required 里**的字段动手：值是 null 且 schema 说它不是 null 类型
+ * → 删掉该字段（JSON 里"缺失"与"null"对消费方差别很小，而缺失一定合法）。
+ *
+ * 对 **required** 字段不删（删了会从"类型错"变成"缺字段错"，同样是失败）；
+ * 那种情况属于实现 bug，应该在源头修（例如 taskView 已把时间字段改成 0）。
+ *
+ * @param {unknown} value 工具返回值
+ * @param {object} [schema] output.schema（JSON Schema 子集）
+ * @returns {unknown} 处理后的值
+ */
+export function dropNullForSchema(value, schema) {
+  if (value === null || typeof value !== 'object') return value
+  if (!schema || typeof schema !== 'object') return value
+
+  // ── 数组：逐元素套用 items 的 schema 递归 ──────────────────────────────
+  //
+  // ⚠ 这一段是 2026-10-16 补的。原实现遇到数组**直接 return**，于是
+  // `nodes[0].resource = null` 原样出边界，DSH 报
+  //
+  //     tool "cluster_nodes" returned invalid output:
+  //     "value.nodes[0].resource" must be an object
+  //
+  // 现象是"工具存在并执行了，但返回值不合 schema" —— 而 schema 里
+  // `resource` 只声明了 `type: 'object'`，靠"optional 的 null 会被剥掉"
+  // 这个约定来容错。**约定只有在递归到那一层时才生效。**
+  if (Array.isArray(value)) {
+    const itemSchema = schema.items && typeof schema.items === 'object' ? schema.items : null
+    if (!itemSchema) return value
+    return value.map((v) => dropNullForSchema(v, itemSchema))
+  }
+
+  const props = schema.properties && typeof schema.properties === 'object' ? schema.properties : null
+  if (!props) return value
+  const required = Array.isArray(schema.required) ? schema.required : []
+  const out = { ...value }
+  for (const [key, sub] of Object.entries(props)) {
+    if (out[key] === null) {
+      if (required.includes(key)) continue // required 的 null 要在源头修，这里不掩盖
+      const t = sub && typeof sub === 'object' ? sub.type : undefined
+      // schema 允许 null（type 数组含 'null'，或显式 nullable）时保留
+      const allowsNull = t === 'null' || (Array.isArray(t) && t.includes('null')) || (sub && sub.nullable === true)
+      if (!allowsNull) delete out[key]
+      continue
+    }
+    // ── 非 null 的子值：递归下去 ─────────────────────────────────────────
+    //
+    // 只处理对象/数组（标量没什么可剥的）。这一层同样不能省：
+    // `nodes[].resource = { cpuPct: null, ... }` 里的 null 也要剥，
+    // 否则 `"value.nodes[0].resource.cpuPct" must be a number`。
+    const subValue = out[key]
+    if (subValue !== null && typeof subValue === 'object' && sub && typeof sub === 'object') {
+      const next = dropNullForSchema(subValue, sub)
+      if (next !== subValue) out[key] = next
+    }
+  }
+  return out
+}
+
+/**
+ * 把工具返回值净化成 **DSH 认可的纯 JSON 值**。
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * 为什么必须有这一层（实测踩到，代价很大）
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * DSH 在工具返回值出边界时会跑 `walkJsonValue(value, true)`（见 asar 里的
+ * `snapshotJsonValue`）。它返回 `undefined` 的条件是：
+ *
+ *   - `typeof value !== 'object'` 且不是 null/boolean/string/number
+ *     → **undefined / 函数 / Symbol 全部被拒**
+ *   - 数字 `!Number.isFinite(v) || Object.is(v, -0)`  → **NaN / Infinity / -0 被拒**
+ *   - 原型不是 `Object.prototype` 也不是 `null`  → **类实例被拒**
+ *   - 循环引用
+ *   - 数组原型不对，或数组上挂了额外属性
+ *
+ * 一旦被拒，工具调用报 `returned invalid output: value is not lossless JSON`。
+ * **此时工具其实已经执行成功**（任务派出去了、文件拉回来了），但调用方只看到
+ * 一个序列化错误 —— 既拿不到结果，也无法判断副作用是否发生。这是最坏的一类
+ * 失败：**有副作用却报失败**。
+ *
+ * 我们踩到的具体形态：副机回传的 `accepted` 对象带类原型，直接塞进返回值就被拒。
+ *
+ * ── 策略 ────────────────────────────────────────────────────────────────
+ * 用一次 JSON 往返把值变成纯数据（`JSON.parse(JSON.stringify(v))`）：
+ *   - 类实例 → 纯对象（原型丢失，但我们只读它的可枚举数据字段）
+ *   - undefined 属性 → 被 JSON.stringify 丢掉（正是我们要的）
+ *   - NaN / Infinity → **会被 stringify 变成 null**，所以先手动扫一遍转成 0
+ *   - 循环引用 → stringify 抛错，被 catch 兜住
+ *
+ * 注意：这里**不**做字段级白名单（那是 views.js 的职责）。本函数只管
+ * "能不能安全出边界"这一件事，让每个工具不必各自记得处理。
+ *
+ * @param {unknown} v 任意工具返回值
+ * @returns {unknown} 纯 JSON 值；无法净化时返回一个最小安全对象
+ */
+export function toPlainJson(v) {
+  try {
+    // 先把 NaN / Infinity / -0 归一（JSON.stringify 会把它们变成 null，
+    // 而 null 对 schema 声明为 number 的字段又是违规的 → 用 0 更安全）
+    const norm = (x, seen) => {
+      // ⚠ null 必须**原样保留**：DSH 的 walkJsonValue 明确接受 null
+      // （`if (current === null) { assign(...); continue }`）。
+      // 早先这里写的是 `if (x === null || x === undefined) return undefined`，
+      // 把 null 一起吞了 —— 会让「值为 null 的字段」静默消失。已由
+      // test/tool-output-plain.test.js 的「null 保持 null」用例锁住。
+      if (x === null) return null
+      if (x === undefined) return undefined
+      const t = typeof x
+      if (t === 'number') return Number.isFinite(x) && !Object.is(x, -0) ? x : 0
+      if (t === 'string' || t === 'boolean') return x
+      if (t === 'bigint') return String(x)
+      if (t === 'function' || t === 'symbol') return undefined
+      if (t !== 'object') return undefined
+      if (seen.has(x)) return undefined
+      seen.add(x)
+      try {
+        if (Array.isArray(x)) return x.map((item) => norm(item, seen)).filter((item) => item !== undefined)
+        const out = {}
+        for (const k of Object.keys(x)) {
+          const val = norm(x[k], seen)
+          if (val !== undefined) out[k] = val
+        }
+        return out
+      } finally {
+        seen.delete(x)
+      }
+    }
+    return norm(v, new Set())
+  } catch {
+    return {}
+  }
+}
+
+/** 渲染文本上限：工具结果进模型上下文，别把整份清单灌进去。 */
+const RENDER_LIMIT = 6000
+
+export function text(value) {
+  let s
+  if (typeof value === 'string') s = value
+  else {
+    try {
+      s = JSON.stringify(value, null, 2)
+    } catch {
+      s = undefined
+    }
+  }
+  // JSON.stringify(undefined) / 循环引用都返回 undefined：展示层退化成占位文本。
+  if (typeof s !== 'string') return '(no value)'
+  return s.length > RENDER_LIMIT ? `${s.slice(0, RENDER_LIMIT)}\n… (truncated)` : s
+}
+
+/**
+ * 包一层 render。
+ *
+ * render 是"展示层"，它绝不该把一次成功的工具调用变成失败：值形状意外
+ * （例如被裁剪、被旧版投影喂进来）时退回 JSON 文本，而不是抛出去。
+ */
+export function renderText(fn) {
+  return (args, value) => {
+    try {
+      const out = fn(args, value)
+      return [{ type: 'text', text: typeof out === 'string' ? text(out) : text(out ?? value) }]
+    } catch {
+      return [{ type: 'text', text: text(value) }]
+    }
+  }
+}
+
+/**
+ * 把工具声明补齐成 DSH 要求的 `output: { schema, render }`。
+ *
+ * DSH 的 `tools.register()` 会在注册期校验：
+ *   `output === undefined || typeof output !== 'object'
+ *    || typeof output.render !== 'function'` → TypeError
+ * 一旦某个工具声明不合法，**整个插件条目不激活**（0.10.0 的真实事故：
+ * `tool "cluster_write" must declare output { schema, render, presentationMeta? }`）。
+ *
+ * 两种历史写法都要兼容：
+ *   · `output: { schema: {...} }`  —— 缺 render
+ *   · `output: { type: 'object', ... }` —— 裸 JSON Schema，既缺 schema 包装层也缺 render
+ */
+export function withOutputContract(definition) {
+  if (definition === null || typeof definition !== 'object') return definition
+  const raw = definition.output
+  let schema
+  if (raw !== null && typeof raw === 'object' && raw.schema !== undefined) {
+    schema = raw.schema
+  } else if (raw !== null && typeof raw === 'object') {
+    schema = raw
+  } else {
+    schema = { type: 'object' }
+  }
+  const hasRender = raw !== null && typeof raw === 'object' && typeof raw.render === 'function'
+  const render = hasRender
+    ? raw.render
+    : renderText((_args, value) => value)
+  const presentationMeta = raw !== null && typeof raw === 'object' && typeof raw.presentationMeta === 'function'
+    ? raw.presentationMeta
+    : undefined
+  return {
+    ...definition,
+    output: presentationMeta === undefined ? { schema, render } : { schema, render, presentationMeta },
+  }
+}
+
+/** 安全的数组读取：值缺失时给空数组，而不是 undefined.length。 */
+export function arr(v) {
+  return Array.isArray(v) ? v : []
+}
+
+export function num(v) {
+  return typeof v === 'number' && Number.isFinite(v) ? v : undefined
+}
+
+export function human(bytes) {
+  if (!Number.isFinite(bytes)) return '?'
+  const units = ['B', 'KiB', 'MiB', 'GiB']
+  let n = bytes
+  let i = 0
+  while (n >= 1024 && i < units.length - 1) {
+    n /= 1024
+    i += 1
+  }
+  return `${i === 0 ? n : n.toFixed(1)} ${units[i]}`
+}
+
+/** 从任务视图挑出可 pull 的成品路径。 */
+export function finalPaths(task) {
+  const fromManifest = task?.manifest?.final
+  if (Array.isArray(fromManifest)) return fromManifest.map((i) => i.path)
+  const fromHandoff = task?.handoff?.artifacts?.final
+  if (Array.isArray(fromHandoff)) return fromHandoff.map((i) => i.path)
+  return []
+}
+
+export function buildManifestView(task) {
+  const m = task?.manifest ?? null
+  const a = task?.handoff?.artifacts ?? null
+  const counts = m?.counts ?? a?.counts ?? null
+  const bytesFinal = num(m?.bytesFinal) ?? num(a?.bytesFinal) ?? 0
+  const finalList = Array.isArray(m?.final) ? m.final : Array.isArray(a?.final) ? a.final : []
+  // ⚠ 声明为 string 的字段一律不能返回 null（DSH 会报 value is not lossless JSON）。
+  const str = (x) => (typeof x === 'string' ? x : '')
+  return {
+    taskId: str(task?.taskId),
+    status: str(task?.status) || 'unknown',
+    // counts 在 schema 里是 object，null 同样会触发序列化错误 → 用空对象兜底
+    counts: counts && typeof counts === 'object' ? counts : {},
+    bytesFinal,
+    final: finalList.map((i) => ({
+      path: str(i.path),
+      kind: str(i.kind) || 'file',
+      bytes: num(i.bytes) ?? 0,
+      sha256: str(i.sha256),
+    })),
+    intermediateCount: num(m?.intermediateCount) ?? num(a?.intermediateCount) ?? 0,
+    note:
+      (typeof m?.note === 'string' && m.note) ||
+      (typeof a?.note === 'string' && a.note) ||
+      (finalList.length === 0
+        ? '还没有清单：任务未结束，或本次没有 role:final 产物。'
+        : '只有 role:final 可以 pull；intermediate 仅上报元数据，留在副机。'),
+  }
+}
+
+/** 从 handoff 生成一段人/模型都能直接读的摘要文本。 */
+export function handoffSummaryText(task) {
+  const h = task?.handoff
+  if (!h) {
+    return `任务 ${task?.taskId ?? '(unknown)'} 尚无交接卡（status=${task?.status ?? 'unknown'}）。`
+  }
+  const lines = []
+  lines.push(`# 远程任务交接 ${h.taskId}`)
+  lines.push('')
+  lines.push(`- 节点：${h.nodeId}`)
+  lines.push(`- 状态：${h.status}${h.exit?.timedOut ? '（超时）' : ''}`)
+  lines.push(`- 模式：${h.mode}  运行器：${h.runner ?? 'unknown'}`)
+  if (typeof h.durationMs === 'number') lines.push(`- 耗时：${Math.round(h.durationMs / 1000)}s`)
+  lines.push(`- 工作区：${h.workspace}`)
+  lines.push('')
+  lines.push('## 摘要')
+  lines.push('')
+  lines.push(String(h.summary?.text ?? '(无摘要)'))
+  const changed = Array.isArray(h.changed) ? h.changed : []
+  if (changed.length > 0) {
+    lines.push('')
+    lines.push(`## 工作区变更（${changed.length} 条）`)
+    lines.push('')
+    for (const c of changed.slice(0, 40)) {
+      lines.push(`- ${c.op} ${c.path}${typeof c.bytes === 'number' ? ` (${human(c.bytes)})` : ''}`)
+    }
+    if (changed.length > 40) lines.push(`- … 另有 ${changed.length - 40} 条`)
+  }
+  // 任务变更 diff 视图（提案 #21）：有 diff 就直接给文本，模型无需再拉文件。
+  const diffs = Array.isArray(h.diffs) ? h.diffs : []
+  if (diffs.length > 0) {
+    lines.push('')
+    lines.push(`## 变更 diff（${diffs.length} 个文件）`)
+    for (const d of diffs) {
+      lines.push('', `### ${d.path}${d.truncated ? '（截断）' : ''}`, '', '```diff', String(d.diff), '```')
+    }
+  }
+  const artifacts = h.artifacts
+  if (artifacts) {
+    lines.push('')
+    lines.push(`## 产物清单（final ${artifacts.counts?.final ?? 0} / intermediate ${artifacts.intermediateCount ?? 0}）`)
+    lines.push('')
+    for (const f of (artifacts.final ?? []).slice(0, 40)) {
+      lines.push(`- ${f.path} — ${f.kind}, ${human(f.bytes)}, sha256=${String(f.sha256 ?? 'n/a').slice(0, 12)}…`)
+    }
+    lines.push('')
+    lines.push(String(artifacts.note ?? ''))
+    if (typeof h.pullHint === 'string') lines.push('', `拉取提示：${h.pullHint}`)
+  }
+  const logs = h.logs?.tail
+  if (Array.isArray(logs) && logs.length > 0) {
+    lines.push('')
+    lines.push('## 日志尾巴')
+    lines.push('')
+    for (const l of logs.slice(-10)) lines.push(`> ${String(l).slice(0, 300)}`)
+  }
+  return lines.join('\n')
+}
+
