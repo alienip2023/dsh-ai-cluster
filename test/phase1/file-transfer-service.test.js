@@ -8,7 +8,8 @@ import { createHash } from 'node:crypto'
 import { createFileTransferService } from '../../src/xfer/transfer.js'
 
 function fixture(t, overrides = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-file-transfer-'))
+  // The service resolves paths with realpath: on macOS the temp dir is /var → /private/var.
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-file-transfer-')))
   t.after(() => {
     fs.rmSync(root, { recursive: true, force: true })
   })
