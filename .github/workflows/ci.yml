@@ -1,0 +1,97 @@
+name: CI
+
+# 这个包的质量防线有两条：
+#   1. `scripts/check-doc-drift.mjs` —— 断言文档与代码的关键约定一致
+#      （例如 UI 路由前缀、投影调用点、围栏失败关闭）。它防的是"改了代码忘了改文档"
+#      这类**静默漂移**，比单元测试更容易被忽略。
+#   2. `test/*.test.js` —— 行为测试。
+ # 两条都在 `npm run check` 里，所以 check job 只跑这一条命令；lint（eslint 严格档）是第三条防线，独立 job 跑 `npm run lint`。
+#
+# 跨平台跑三档：本包支持 Windows / macOS / Linux（副机侧有平台分支与
+# 编码差异），只跑 Linux 会漏掉 Windows 专有的路径分隔符与 GBK 编码问题 ——
+# 我们实际踩过 PowerShell 落盘 GBK 导致源码损坏的坑。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# 同一分支的新推送取消旧的运行，省额度。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check (${{ matrix.os }} / node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node: ['22.x', '24.x']
+        exclude:
+          # 三平台 × 两 Node 版本 = 6 组。macOS 只跑一个版本，够覆盖
+          # POSIX 分支即可，省一半额度。
+          - os: macos-latest
+            node: '22.x'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # 本包**零外部 npm 依赖**（只用 node: 内置模块 + 一个 peer 的 schemastery）。
+      # 所以不装依赖也能跑测试 —— 这正是它能直接从 git 安装的原因。
+      # （实测过：node_modules 整个藏起来，`npm test` 524 条 + doc-drift 84 条全绿。
+      #  唯一 import schemastery 的是 lib/index.js —— DSH 插件入口，该依赖由宿主
+      #  运行时提供，没有任何测试碰到它。）
+      #
+      # 这一步的真实价值**不是**"验证 lockfile 自洽"（本仓库 .npmrc 显式
+      # package-lock=false，没有 npm lockfile 可校验；pnpm-lock.yaml 是 pnpm 的
+      # 锁文件，而零依赖包的锁文件漂移没有实际后果）。它实际在防的是：
+      # dependencies 里的 schemastery ^3.18.4 某天解析不了（版本下架/改名），
+      # 从 git 安装的用户会拿到一个装不上的包 —— 那是只有用户才看得到的失败。
+      - name: Install (依赖可解析性冒烟)
+        run: npm install --no-audit --no-fund
+
+      - name: Check (doc drift + tests)
+        run: npm run check
+
+      # 单独把测试结果再跑一遍，便于在 CI 日志里定位失败的是哪条。
+      # `npm run check` 若在 drift 阶段就失败，测试根本不会跑。
+      - name: Tests (verbose on failure)
+        if: failure()
+        run: npm test
+
+  # 独立的一档：验证包能被 git 安装路径解析（DSH 的实际安装方式）。
+  # 只检查 package.json 的 files/exports 与实际文件一致，不真的装 DSH。
+  packaging:
+    name: packaging (files/exports 一致性)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+      - name: package.json 里 files 列出的路径必须存在
+        run: node scripts/check-packaging.mjs
+
+  # 第三条防线：eslint 严格档（静态一致性；no-undef 首跑就抓到过 numOr 真 bug）。
+  # 独立 job 而不是塞进 check —— check 的卖点是「不装依赖也能跑」（node_modules
+  # 藏起来测试照样绿），lint 需要 devDependencies，不污染这个性质。
+  lint:
+    name: lint (eslint 严格档)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.x'
+      - name: Install devDependencies
+        run: npm install --no-audit --no-fund
+      - name: eslint .
+        run: npm run lint

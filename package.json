@@ -1,0 +1,106 @@
+{
+  "name": "dsh-remote-agent",
+  "version": "0.10.1-fork.93",
+  "type": "module",
+  "description": "把另一台电脑变成你 DSH 的远程 Agent 同事：副机本地持久跑任务、独立 Agent 循环，只回传 handoff 摘要与产物清单，成品按需拉取。",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zbzbhs/dsh-remote-agent.git"
+  },
+  "bugs": {
+    "url": "https://github.com/zbzbhs/dsh-remote-agent/issues"
+  },
+  "homepage": "https://github.com/zbzbhs/dsh-remote-agent#readme",
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "dsh-plugin",
+    "ai-agent",
+    "agent",
+    "multi-agent",
+    "remote-agent",
+    "remote-execution",
+    "task-automation",
+    "self-hosted",
+    "zero-dependency",
+    "handoff",
+    "artifact",
+    "subagent-provider"
+  ],
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./hub": "./lib/hub/index.js",
+    "./worker": "./lib/node/index.js",
+    "./protocol": "./lib/protocol.js",
+    "./pairing": "./lib/pairing.js",
+    "./relay": "./lib/relay.js",
+    "./setup": "./lib/setup.js",
+    "./package.json": "./package.json",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./profiles/hub.cordis.yml": "./profiles/hub.cordis.yml",
+    "./profiles/worker.cordis.yml": "./profiles/worker.cordis.yml"
+  },
+  "main": "./lib/index.js",
+  "bin": {
+    "dsh-remote-relay": "bin/dsh-remote-relay.js",
+    "dsh-remote-setup": "bin/dsh-remote-setup.js"
+  },
+  "files": [
+    "lib",
+    "bin",
+    "deploy",
+    "docs",
+    "profiles",
+    "scripts",
+    "cordis.patch.yml",
+    "README.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
+    "KNOWN-ISSUES.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": []
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/schemastery": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/schemastery": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4",
+    "ssh2": "^1.16.0"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "check:docs": "node scripts/check-doc-drift.mjs",
+    "check:packaging": "node scripts/check-packaging.mjs",
+    "lint": "eslint .",
+    "check": "npm run check:packaging && npm run check:docs && npm run diag:inject && npm test",
+    "diag:inject": "node scripts/diag-inject.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.12.0",
+    "globals": "17.13.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

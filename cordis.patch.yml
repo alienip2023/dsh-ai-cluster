@@ -1,0 +1,141 @@
+# dsh-remote-agent bundle patch（package.json 的 dsh.bundle.patch 指向本文件）。
+#
+# 作用：让 `dsh plugin add dsh-remote-agent` / plugin_manager 的 install_bundle
+# 能把插件行插入 loader。没有这个文件，loader 读不到 patch，插件行永不插入，
+# remote_* 工具永不注册 —— 这是 v0.1 的一个真实 blocker（由 t5 独立验证发现）。
+#
+# ── 关于 role 的默认值 ──────────────────────────────────────────────
+# 一个包只有一个 dsh.bundle.patch，但 hub 与 worker 需要不同的 config。
+# 所以这里插入一个**中性默认**（role: hub，不做任何连接），然后由用户在自己
+# profile 的 cordis.patch.yml 里按 id 覆盖成需要的角色与连接参数：
+#
+#   主电脑（hub）：
+#     - id: remote-agent
+#       config:
+#         role: hub
+#         relay:
+#           url: ws://RELAY_HOST:8890/relay
+#           token: <relay hub token>
+#
+#   副电脑（worker）：
+#     - id: remote-agent
+#       config:
+#         role: worker
+#         transportMode: relay
+#         relayUrl: ws://RELAY_HOST:8890/relay
+#         token: <enroll token>
+#         roots: ['D:\work']
+#         nodeId: 'slave-pc'
+#
+# 完整的可复制片段见 profiles/hub.cordis.yml 与 profiles/worker.cordis.yml。
+#
+# ── 为什么默认 role: hub 而不是 worker ──────────────────────────────
+# hub 角色在没有任何配置时是**惰性**的：它注册路由与工具，但不主动拨出任何连接，
+# 也不写磁盘。worker 角色默认会尝试连 relay 并在连不上时退避重试（虽然不阻塞启动），
+# 对一个"刚装好还没配置"的 profile 来说噪声更大。所以默认取 hub。
+#
+# 关闭本插件：给该行加 disabled: true，而不是删掉这个文件。
+#
+# ── 为什么这里要声明 inject（重要，别删）────────────────────────────
+# cordis 的防护：**没有声明 inject 就不能访问服务** —— 直接读 `ctx.webServer`
+# 会抛 `cannot get property "webServer" without inject`（实测）。
+#
+# 而"运行时用 ctx.inject(deps, cb) 拿服务"这条路走不通：inject 返回的是 thenable
+# fiber，要 await 才算加载完成；而插件的 apply 是同步的，父 fiber 同步返回后框架
+# 会清理尚未 settle 的子 fiber —— 实测注册成功 13ms 后出现
+# `DISPOSED (fiber unloaded)`，路由被删且不再回来（面板 404/401，启动日志无异常）。
+#
+# 所以在**行上**声明 inject：框架会**推迟本行的激活**直到这些服务就绪，只 apply
+# 一次、没有子 fiber 抖动。这是唯一被验证可用的形态。
+#
+# ── 为什么 inject 是 hub 的三个服务（2026-10-15 二次修订）──────────────
+#
+# `inject` 必须**跟着角色走**：
+#
+#   role: ''（未配置）→ 需要 webServer（注册引导路由）
+#   role: hub         → **需要 webServer + tools + systemPrompt**
+#   role: worker      → 需要 tools + agentLoop + sessions
+#                       （agent 的 ctx **继承本行的依赖声明**，少了 tools 就
+#                        挂不上 shell/文件工具 —— 实测踩过）
+#
+# ── 一次真实的翻车（我把它收窄成 ['webServer'] 导致的）──────────────────
+#
+# 曾把这里改成 `inject: ['webServer']`，理由"未配置时只需要 webServer"。
+# 结果：**profile 里没写 inject 的机器（旧配置 / 手写配置）合并后就是
+# `['webServer']`，hub 分支一访问 `ctx.tools` 就抛**
+#
+#     cannot get property "tools" without inject
+#
+# 而 `applyHub` 里工具注册在路由注册**之后** —— 于是现象是：
+#   · /api/remote-agent/healthz 活着（200，还带着 nodes/online 计数）
+#   · /api/remote-agent/ui/* 活着
+#   · **8 个 remote_* 工具全部消失**
+#   · 插件管理页显示「异常」（fiber phase: failed）
+#
+# 一半活一半死，极难归因。
+#
+# ── 结论 ────────────────────────────────────────────────────────────────
+#
+# 包内默认取 **hub 的全集**：这是"没被 profile 覆盖时"最安全的默认 ——
+# desktop profile 三个服务都在，未配置时多声明两个无害（只在 hub 分支被访问）；
+# 而选了 worker 的用户，引导流程会把 inject 一并改写成 worker 的那三个。
+- insert:
+    - id: remote-agent
+      name: dsh-remote-agent
+      inject: ['webServer', 'tools', 'systemPrompt']
+      config:
+        # 默认 auto：**按配置推断角色**（2026-10-17，"开箱即用"的落点）。
+        #
+        #   · 没配 hubUrl → hub（主机）→ 主机装完零操作 ✅
+        #   · 配了 hubUrl → worker（副机）→ 副机贴完配对码零操作 ✅
+        #
+        # 为什么不用写死的 hub：副机装完会以 hub 身份启动，注册一个 nodeToken
+        # 为空、不校验凭证的直连端点 —— 那是实打实的攻击面（v0.7.0 之前的老问题）。
+        #
+        # 为什么不用写死的 ''：两台机器都要操作一次，不是开箱即用；而且升级时
+        # 包内默认容易把 profile 里没显式写的 role 冲成空（实测踩过）。
+        #
+        # 判据见 lib/index.js 的 resolveRoleDetail。
+        role: auto
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ⚠⚠ 绝对不要覆盖 webserver 的 host（2026-10-18 事故：我犯过这个错）
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# ── 事故经过 ────────────────────────────────────────────────────────────
+#
+# v0.9.0 为了让"副机连得上"，我在包内 patch 里加了：
+#
+#     - id: webserver
+#       config:
+#         host: '0.0.0.0'
+#         port: 19387
+#
+# **结果：DSH 直接启动崩溃。** 新版 `@deepseek-ai/dsh-host-webserver` 在
+# schema 校验阶段就硬拒绝通配地址：
+#
+#     webserver: host "0.0.0.0" is an unspecified (wildcard) address, which is
+#     not supported: binding every interface would expose remote code execution
+#     to the network; bind one concrete IPv4 or IPv6 address of a local
+#     interface instead
+#
+# 后果链：webserver（required）激活失败 → `webServer` 服务缺失 → 至少 6 个
+# 插件排队等它（web-runtime / open-in-app / directory-picker / client-hmr /
+# **remote-agent** …）→ host 启动失败。实测产生了 10 份 crash 日志。
+#
+# 这个错误比它想修的"副机连不上"严重得多：**连 DSH 都起不来了**。
+#
+# ── 所以现在的做法 ──────────────────────────────────────────────────────
+#
+# **本包不碰 webserver 的任何字段。** 理由：
+#
+#   1. host 必须是**具体某个本机接口地址**（如 Tailscale IP / 局域网 IP），
+#      而这个值因人而异 —— 包里写死任何具体 IP 都是错的。
+#   2. 插件在 `apply()` 里也**不能**自己读网卡再拼配置：loader 的 patch 是
+#      启动前静态合并的，改不了自己所在那一行的 config。
+#   3. 实际做法：**主机的 webserver 由用户/DSh 自己配**，我们只在
+#      「环境体检」里检测"是否绑在可达地址"，绑 loopback 就明确报错并给出
+#      该填什么（含如何查自己的 Tailscale / 局域网 IP）。
+#
+# 这就是 0575c6b 的可达性自检 + c4459c5 的环境体检的价值 —— **诊断而不是
+# 代改配置**。2026-10-17 我想"帮用户改好"，结果改出了启动崩溃。
