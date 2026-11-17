@@ -2,7 +2,8 @@
 
 ## 这是什么
 
-`dsh-remote-agent-0.10.1-fork.96.tgz` 是本仓库当前代码的本地回退包。
+`dsh-remote-agent-0.10.1-fork.98.tgz` 是本仓库当前代码的本地回退包。
+`.96` 早于 0.2.x headless 参数和 `--json` 事件解析修复，已由包含这两项修复的 `.98` 取代。
 它沿用旧包名 `dsh-remote-agent`，供桌面已有的依赖键继续使用。
 运行代码仍来自当前 `lib/`，没有另建旧版分支，也没有恢复历史实现。
 暂存 manifest 只改 `name` 和 `version`，其他字段保持不变。
@@ -32,7 +33,7 @@
 
 ## 安装窗口的三行操作
 
-1. 将 `dsh-remote-agent-0.10.1-fork.96.tgz` 放到桌面可读取的固定位置。
+1. 将 `dsh-remote-agent-0.10.1-fork.98.tgz` 放到桌面可读取的固定位置。
 2. 将 profile 的 `dsh-remote-agent` dependency 和对应 override 都指向该 tgz 的同一绝对路径。
 3. 保存 profile 后重启桌面，确认启动日志不再出现该依赖的安装或 registry 错误。
 
@@ -53,7 +54,7 @@ node scripts/pack-fallback.mjs /absolute/path/to/existing-output-directory
 ```
 
 输出目录必须事先存在；脚本在系统临时目录暂存，退出时清理。
-产物固定为该目录中的 `dsh-remote-agent-0.10.1-fork.96.tgz`。
+产物固定为该目录中的 `dsh-remote-agent-0.10.1-fork.98.tgz`。
 脚本检查归档内的名称、版本、patch 入口名、两个入口及其语法，并拒绝 `src/`、`test/`。
 最后输出产物绝对路径、字节数和 SHA-256，供交接时核对。
 

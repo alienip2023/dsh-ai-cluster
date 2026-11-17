@@ -14,7 +14,7 @@ import { rewriteBundlePatch } from './rewrite-bundle-patch.mjs'
 
 const ROOT = fileURLToPath(new URL('../', import.meta.url))
 const NAME = 'dsh-remote-agent'
-const VERSION = '0.10.1-fork.96'
+const VERSION = '0.10.1-fork.98'
 const FILENAME = `${NAME}-${VERSION}.tgz`
 const ENTRIES = ['lib/index.js', 'lib/plugin/index.js']
 let temporary
