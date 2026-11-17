@@ -176,7 +176,7 @@ export function apply(ctx, config = {}) {
     const { registry, pulls } = handles.hub
     const { defaults } = normalizeConfig(config)
     handles.tools = registerClusterTools({ ctx, registry, pulls, log, defaults, sessionGate: handles.hub.sessionGate })
-    handles.routes = registerUiRoutes({ ctx, registry, pulls, log, defaults, sessionGate: handles.hub.sessionGate })
+    handles.routes = registerUiRoutes({ ctx, registry, pulls, log, defaults, sessionGate: handles.hub.sessionGate, config })
   }
 
   if (role === ROLE.WORKER || role === ROLE.BOTH) {
