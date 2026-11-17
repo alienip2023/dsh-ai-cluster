@@ -198,8 +198,19 @@ async function workerFixture(t, config = {}) {
   { nodeId: 'connectivity-node', hubUrl: '', stateDir: dir, roots: [dir], resourceIntervalMs: 0, reposIntervalMs: 0, tunnelConfigPaths: [], ...config })
   t.after(dispose)
   const reports = () => frames.filter(f => f.t === 'node/connectivity')
-  // Real filesystem promises need an event-loop turn after advancing fake timers.
-  const settle = async () => { for (let i = 0; i < 20; i++) await pause() }
+  // Fake timers plus real fs promises: a fixed 20-turn drain races. Wait until
+  // the report count changes, or until a quiet window proves it will not.
+  const settle = async () => {
+    const start = reports().length
+    let quiet = 0
+    for (let i = 0; i < 200; i++) {
+      await pause()
+      if (reports().length !== start) return
+      quiet += 1
+      if (quiet >= 40) return
+    }
+    throw new Error(`settle timed out waiting for connectivity reports (still ${reports().length})`)
+  }
   return { transport, frames, reports, logs, handlers, dispose, settle }
 }
 
