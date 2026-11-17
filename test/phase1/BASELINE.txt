@@ -1,0 +1,28 @@
+✖ #27-1：全部失败时返回 null（面板退回自由文本，不是空数组）
+✖ #27-1：副机用 ctx.llm 的 listProviders + listModels 探测（不是猜配置结构）
+✖ #27-1：单个 provider 探测失败不影响其它（尽力而为）
+✖ #27-1：只上报 provider/id/name —— 绝不带 apiKeyEnv / baseURL / 凭证
+✖ #27-1：有数量上限（不让 RESOURCE 帧膨胀）
+✖ #27-2：RESOURCE 帧带 models，且来自缓存（同步 interval 不能 await）
+✖ L1：副机 transport 必须有 connecting 闸门（防重复连接）
+✖ apply: re-apply releases the previous role and stale disposal preserves the current service
+✖ commit uses atomic no-clobber when a target appears at final publish
+✖ empty files commit and read back with a canonical digest and eof
+✖ failing tests:
+✖ registry → overview → hub panel displays actual reports through node state changes
+✖ test/approval.test.js
+✖ test/assembly-wiring.test.js
+✖ test/config-sync-profile-path.test.js
+✖ test/env-check.test.js
+✖ test/fork31-relay-path.test.js
+✖ test/hub-worker-e2e.test.js
+✖ test/out-of-box.test.js
+✖ test/panel-config-apply.test.js
+✖ test/panel-mint-enroll.test.js
+✖ test/profile-path.test.js
+✖ test/templates.test.js
+✖ test/ui-routes.test.js
+✖ test/webserver-contract.test.js
+✖ 回归：applyHub 在缺 tools 的 inject 下**不再抛错**（容错生效）
+✖ 自检：干净副本必须通过（脚本不是"永远失败"）
+✖ 自检：注释里的反例不得被当成真代码（防剥注释回归）

@@ -1,0 +1,339 @@
+/**
+ * wire/frames：帧词表、信封与二进制帧编解码（沿用 lib/protocol.js，invariant W1：
+ * HUB_TO_NODE / NODE_TO_HUB 字节不变，PROTOCOL_VERSION 保持 1）。
+ */
+import { ERROR_CODE, RemoteAgentError } from './errors.js'
+
+export const PROTOCOL_VERSION = 1
+
+export const PEER = Object.freeze({
+  HELLO: 'peer/hello',
+  WELCOME: 'peer/welcome',
+  DIRECTORY: 'peer/directory',
+})
+
+export const PEER_BOT_TYPES = Object.freeze(['bot/turn', 'bot/turn-result', 'bot/message'])
+
+/** Only advertise a usable peer endpoint; never propagate credentials in a URL. */
+export function normalizePeerUrl(raw) {
+  if (typeof raw !== 'string' || raw.length > 2048) return ''
+  try {
+    const url = new URL(raw)
+    if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password || url.search || url.hash
+      || url.pathname !== '/api/ai-cluster/peer') return ''
+    return url.href
+  } catch { return '' }
+}
+
+/** 帧类型。hub→node 与 node→hub 分列，避免拼写漂移。 */
+export const HUB_TO_NODE = Object.freeze({
+  WELCOME: 'welcome',
+  /**
+   * hub 身份帧（P2-11）。direct 模式的身份证明放在 welcome 里；relay 模式
+   * 副机的"在线"信号来自中继的 accepted，hub 在握手期对副机静默，只能
+   * 在节点上线后**追发**这一帧补上身份证明。副机未验证通过前拒绝执行任务。
+   */
+  IDENTITY: 'hub/identity',
+  /**
+   * E2E 密钥交换确认（提案 #1）：hub 对副机的 node/e2e 提议的签名回应。
+   * 载荷 { pub, sig, at } —— pub 是 hub 的 X25519 临时公钥，sig 用 hub 持久
+   * ed25519 身份签出（绑定双方公钥 + 连接 nonce）。中继只转发，无法伪造。
+   */
+  E2E_ACK: 'hub/e2e',
+  /**
+   * 远程文件请求（提案 #25）：hub → node 的只读文件操作（ls/read/grep/tree）。
+   * 载荷 { op, ...params }；reqId 用信封 id 本身，node 回 fs/res 时 replyTo 对上。
+   * 必须加密（E2E_REQUIRED_TYPES）：目录结构 / 文件内容都是敏感信息。
+   */
+  FS_REQ: 'fs/req',
+  /**
+   * 工作区共享请求（2026-10-17）：hub → node 的 SMB 共享操作。
+   *
+   * 载荷 `{ op: 'probe'|'plan'|'unshare-plan', ...params }`。
+   *
+   * ⚠ 本帧**只做探测与生成命令**，不执行 `New-SmbShare` —— 那需要管理员，
+   * 而 DSH 通常以普通用户运行。执行由用户在提权 PowerShell 里手动做
+   * （面板给出可复制的命令）。这个设计是刻意的：Node 里提权失败的表现
+   * （静默失败 / 被安全软件拦 / 权限半生效）比让用户手动跑一条命令难排查。
+   *
+   * 必须加密（E2E_REQUIRED_TYPES）：帧里含工作区绝对路径。
+   */
+  SHARE_REQ: 'share/req',
+  TASK_START: 'task/start',
+  TASK_CANCEL: 'task/cancel',
+  TASK_QUERY: 'task/query',
+  ARTIFACT_LIST: 'artifact/list',
+  ARTIFACT_PULL: 'artifact/pull',
+  ARTIFACT_CANCEL: 'artifact/cancel',
+  PING: 'ping',
+  ERROR: 'error',
+  /**
+   * 名单第 2 步。把一句发话投进副机已有 Bot 会话。
+   * 载荷至少 { nodeId, remoteBotId, exchangeId, text }。不进 task/start。
+   */
+  BOT_TURN: 'bot/turn',
+  /** 节点 Bot 网络：宿主生成的目录与节点间消息，独立于 bot/turn。 */
+  BOT_DIRECTORY: 'bot/directory',
+  BOT_MESSAGE: 'bot/message',
+  /**
+   * 名单第 3 步。主控在指定 node 上新建一个本地 Bot。
+   * 载荷 { nodeId, name, role, requestId }。不进 task/start。
+   */
+  BOT_CREATE: 'bot/create',
+  /** M3: request remote Bot's conversation page */
+  BOT_HISTORY: 'bot/history',
+  BOT_UPDATE: 'bot/update',
+  /**
+   * 名单第 5 步。主控删除 joined Bot 时通知节点删除对应本地 Bot。
+   * 载荷 { nodeId, remoteBotId, requestId }。不进 task/start。
+   */
+  BOT_DELETE: 'bot/delete',
+  /**
+   * Control plane：主控要求节点停掉某个 Bot 正在跑的回合。
+   * 载荷 { nodeId, remoteBotId, requestId }。不进 task/start —— 它不执行任务，
+   * 只对应节点本地 Bot 的一次 cancel。
+   * 必须加密（E2E_REQUIRED_TYPES）：帧里带 Bot 身份。
+   */
+  BOT_STOP: 'bot/stop',
+  /**
+   * T9a：主控 → 节点的只读影子名单。载荷 { hubId, level, hostname, bots }。
+   * 节点据此建 origin:'peer' 的只读行；不带 nodeId —— 归属由连接身份决定。
+   * 必须加密（E2E_REQUIRED_TYPES）：名单暴露主控有哪些 Bot。
+   */
+  PEER_ROSTER: 'peer/roster',
+  /**
+   * M2：主控 → 节点的配置下发帧。
+   * 载荷 { revision, providers: [{ id, baseURL, apiKey, models, defaultModel }] }。
+   * 必须加密（E2E_REQUIRED_TYPES）：帧里含 apiKey 明文。
+   */
+  CONFIG_PUSH: 'hub/config-push',
+  /**
+   * 并发上限下发：主控给某台节点设 TaskEngine 的 maxConcurrent。
+   * 载荷 { nodeId, maxConcurrent, requestId }，范围 1–64。
+   * 不进 task/start —— 它只改队列泵的上限，不执行任务。节点改完立即 pump，
+   * 不需要重启节点 DSH。旧节点按未知帧忽略（不回 result），主控据超时标
+   * 「节点版本不支持」，不假装已生效。
+   * 必须加密（E2E_REQUIRED_TYPES）：与其它控制帧同口径，且帧里带节点身份。
+   */
+  NODE_CONFIG: 'node/config',
+})
+
+export const NODE_TO_HUB = Object.freeze({
+  HELLO: 'hello',
+  /** 重连后主动上报本机全部任务状态 —— 任务状态的真身在副机，不在 hub。 */
+  TASK_SYNC: 'task/sync',
+  TASK_ACCEPT: 'task/accept',
+  TASK_PROGRESS: 'task/progress',
+  TASK_SUMMARY: 'task/summary',
+  TASK_END: 'task/end',
+  ARTIFACT_MANIFEST: 'artifact/manifest',
+  ARTIFACT_CHUNK: 'artifact/chunk',
+  ARTIFACT_DONE: 'artifact/done',
+  /** 资源遥测（CPU/内存/负载，~30s 一次）：派发前先看节点负载。尽力而为，字段可缺。 */
+  RESOURCE: 'node/resource',
+  CONNECTIVITY: 'node/connectivity',
+  /** Detached long-running process ledger, independent of task/start. */
+  JOBS: 'node/jobs',
+  /**
+   * 仓库清单上报（提案 #13）：副机把 roots 下扫到的 git 仓库（名字/远端
+   * url/本机路径）报给 hub，hub 建 repo→node 索引供 remote_task 的 repo:
+   * 参数路由。接入后与每 10min 各发一次；尽力而为，旧 hub 会按未知帧忽略。
+   */
+  REPOS: 'node/repos',
+  /**
+   * E2E 密钥交换提议（提案 #1）：副机上线后发一次，载荷 { pub, nonce } ——
+   * pub 是副机的一次性 X25519 公钥。hub 用持久身份签名确认（hub/e2e）。
+   * 旧 hub 按未知帧忽略 → 协商不成就继续明文（混跑安全）。
+   */
+  E2E_OFFER: 'node/e2e',
+  /**
+   * 远程文件响应（提案 #25）：node → hub 的 fs/req 结果。载荷
+   * { replyTo, ok, result?, code?, message? }。加密发送（node→hub 默认封密）。
+   */
+  FS_RES: 'fs/res',
+  /**
+   * 工作区共享响应（2026-10-17）：node → hub 的 share/req 结果。
+   * 载荷 `{ replyTo, ok, result?, code?, message? }`。加密发送。
+   */
+  SHARE_RES: 'share/res',
+  PONG: 'pong',
+  ERROR: 'error',
+  /**
+   * 副机 DS-Bot 名单（设计第 1 步）。不进 hello。
+   * 载荷 { nodeId, hostname, bots: [{ id, name, role }] }。
+   * 不含 type === remote-worker，避免影子再被报上去。
+   */
+  ROSTER: 'roster/report',
+  /**
+   * 副机把同一 exchangeId 的回答送回主控。
+   * 载荷至少 { nodeId, remoteBotId, exchangeId, text }。
+   */
+  BOT_TURN_RESULT: 'bot/turn-result',
+  BOT_MESSAGE: 'bot/message',
+  /**
+   * 名单第 3 步。副机返回 bot/create 的结果。
+   * 载荷 { requestId, remoteBotId, name, role } 或 { requestId, ok: false, error }。
+   */
+  BOT_CREATE_RESULT: 'bot/create-result',
+  /** M3: response to bot/history */
+  BOT_HISTORY_RESULT: 'bot/history-result',
+  BOT_UPDATE_RESULT: 'bot/update-result',
+  /**
+   * 名单第 5 步。节点回复 bot/delete 的结果。
+   * 载荷 { requestId, ok: boolean, error?: string }。
+   */
+  BOT_DELETE_RESULT: 'bot/delete-result',
+  /**
+   * Control plane：节点回复 bot/stop 的结果。
+   * 载荷 { requestId, ok: boolean, stopped: boolean, error?: string }。
+   * stopped=false 且 ok=true 表示「本来就没在跑」，不是失败。
+   */
+  BOT_STOP_RESULT: 'bot/stop-result',
+  /**
+   * M2：节点请求主控推送最新配置（重连后发，带上已应用的 revision）。
+   * 载荷 { appliedRevision }。明文帧（握手阶段还没 E2E）。
+   */
+  CONFIG_SYNC_REQUEST: 'hub/config-sync-request',
+  /**
+   * M2：节点回执配置应用结果。
+   * 载荷 { ok, appliedRevision?, error?, rollbackRevision? }。加密发送。
+   */
+  CONFIG_ACK: 'hub/config-ack',
+  /**
+   * 并发上限回执。载荷 { requestId, nodeId, ok, maxConcurrent, error? }。
+   * ok:true 时 maxConcurrent 是**实际生效**的值；ok:false 时 error 说明
+   * 拒绝原因（超出 1–64、nodeId 与连接不符）。
+   */
+  NODE_CONFIG_RESULT: 'node/config-result',
+})
+
+// TODO(sync): 记忆帧常量留给后续 sync 模块；暂放此处，供 memory-protocol.test.js 将来导入。
+/** 单帧上限：快照 32KB 正文 + JSON 包装的余量。超限整帧丢弃，不截字段。 */
+export const MAX_MEMORY_FRAME_BYTES = 64 * 1024
+
+export const MEMORY = Object.freeze({
+  HELLO: 'mem/hello',
+  SNAPSHOT: 'mem/snapshot',
+  READ: 'mem/read',
+  READ_RESULT: 'mem/read-result',
+  WRITE: 'mem/write',
+  WRITE_RESULT: 'mem/write-result',
+  ACK: 'mem/ack',
+})
+
+const MEMORY_TYPES = new Set(Object.values(MEMORY))
+/** hub→node 的正文帧：E2E 未建立时节点必须拒收。 */
+export const MEMORY_INBOUND_BODY = Object.freeze([MEMORY.SNAPSHOT, MEMORY.READ_RESULT, MEMORY.WRITE_RESULT])
+/** node→hub 的正文帧：同样只允许在 E2E 会话内发送/接收。 */
+export const MEMORY_NODE_BODY = Object.freeze([MEMORY.READ, MEMORY.WRITE])
+
+export function isMemoryFrameType(type) {
+  return typeof type === 'string' && MEMORY_TYPES.has(type)
+}
+
+export const RELAY_FRAME = Object.freeze({
+  UP: 'up', // node → relay → hub
+  DOWN: 'down', // hub → relay → node
+  NODE_ONLINE: 'node/online',
+  NODE_OFFLINE: 'node/offline',
+  NODE_LIST: 'node/list',
+  HELLO_NODE: 'hello/node',
+  HELLO_HUB: 'hello/hub',
+  // 中继级错误（鉴权失败、nodeId 冲突、目标离线、被吊销）。
+  // 早期版本漏定义此常量，而 relay.js 有 8 处 sendJson(conn, RELAY_FRAME.ERROR, ...)：
+  // t 为 undefined → JSON.stringify 丢弃该字段 → 对端 decodeFrame 报 missing-type，
+  // 于是**所有中继错误帧都送不到**，transport.js / node-registry.js 的 ERROR 分支
+  // 也因 `frame.t === undefined` 永假而永不触发。
+  ERROR: 'error',
+})
+
+let counter = 0
+
+/** 生成一个短小、无依赖、可读的 id。 */
+export function newId(prefix = 'x') {
+  counter = (counter + 1) & 0xffffff
+  const t = Date.now().toString(36)
+  const r = Math.floor(Math.random() * 0x10000).toString(36)
+  return `${prefix}-${t}${r}${counter.toString(36)}`
+}
+
+export function newTaskId() {
+  return newId('t')
+}
+
+export function newPullId() {
+  return newId('p')
+}
+
+/** 构造一个协议信封。 */
+export function envelope(type, data, opts = {}) {
+  const frame = { v: PROTOCOL_VERSION, t: type, id: opts.id ?? newId('m'), d: data ?? {} }
+  if (opts.replyTo) frame.r = opts.replyTo
+  return frame
+}
+
+export function encodeFrame(frame) {
+  return JSON.stringify(frame)
+}
+
+/**
+ * 二进制帧：`[u16 BE 头部长度][头部 JSON][净荷字节]`。
+ *
+ * 为什么不用 base64 塞进 JSON：产物分块是纯字节流，base64 有 33% 膨胀，
+ * 而且中继必须能只读头部就完成路由 —— 净荷一个字节都不该被解码。
+ */
+export function encodeBinaryFrame(header, payload) {
+  const head = Buffer.from(JSON.stringify(header), 'utf8')
+  if (head.length > 0xffff) throw new RemoteAgentError('binary frame header too large', ERROR_CODE.INTERNAL)
+  const out = Buffer.allocUnsafe(2 + head.length + payload.length)
+  out.writeUInt16BE(head.length, 0)
+  head.copy(out, 2)
+  payload.copy(out, 2 + head.length)
+  return out
+}
+
+/** 解析二进制帧。失败返回 {ok:false}，绝不抛。 */
+export function decodeBinaryFrame(buf) {
+  if (!Buffer.isBuffer(buf) || buf.length < 2) return { ok: false, error: 'binary-frame-too-short' }
+  const headLen = buf.readUInt16BE(0)
+  if (buf.length < 2 + headLen) return { ok: false, error: 'binary-frame-header-truncated' }
+  let header
+  try {
+    header = JSON.parse(buf.subarray(2, 2 + headLen).toString('utf8'))
+  } catch {
+    return { ok: false, error: 'binary-frame-header-malformed' }
+  }
+  if (!header || typeof header !== 'object') return { ok: false, error: 'binary-frame-header-not-object' }
+  return { ok: true, header, payload: buf.subarray(2 + headLen) }
+}
+
+/**
+ * 把二进制编解码器注入传输层，避免 ws.js ↔ transport.js 的模块初始化期循环依赖。
+ * 在 node/transport.js 加载时自动完成；单独使用 protocol.js 时不需要调用。
+ */
+export function bindBinaryCodecInto(transportModule) {
+  transportModule.bindBinaryCodec(encodeBinaryFrame, decodeBinaryFrame)
+}
+
+/**
+ * 解析并校验一个信封。
+ * @returns {{ok:true, frame:object} | {ok:false, error:string}}
+ */
+export function decodeFrame(raw) {
+  let parsed
+  try {
+    parsed = JSON.parse(typeof raw === 'string' ? raw : raw.toString('utf8'))
+  } catch {
+    return { ok: false, error: 'malformed-json' }
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { ok: false, error: 'malformed-envelope' }
+  }
+  if (typeof parsed.t !== 'string' || parsed.t === '') {
+    return { ok: false, error: 'missing-type' }
+  }
+  if (parsed.v !== PROTOCOL_VERSION) {
+    return { ok: false, error: ERROR_CODE.PROTOCOL_MISMATCH }
+  }
+  return { ok: true, frame: parsed }
+}
