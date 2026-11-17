@@ -1,4 +1,4 @@
-# dsh-remote-agent —— 主机侧（hub）profile 覆盖片段
+# dsh-ai-cluster —— 主机侧（hub）profile 覆盖片段
 #
 # 用法：把这一段并入主电脑的 profile patch 层（默认
 # `<DSH_HOME>/profiles/<profile>/cordis.patch.yml`）。
@@ -23,7 +23,7 @@
 #
 # 关闭本插件：给该行加 `disabled: true`（同 id），不要删文件。
 - id: remote-agent
-  name: dsh-remote-agent
+  name: dsh-ai-cluster
   config:
     # 'hub' | 'worker' | 'both'（默认 'hub'）。同一台机器自测时用 'both'。
     role: hub
@@ -45,7 +45,7 @@
     healthDetail: true
 
     # ── 可视化界面（浏览器面板）────────────────────────────────────
-    # 侧栏「远程同事」图标 → 主面板：看节点、看任务、派任务、看结果卡、拉成品。
+    # 侧栏「AI 集群控制」图标 → 主面板：看节点、看任务、派任务、看结果卡、拉成品。
     # 只有主电脑（hub）侧有面板；副机不需要任何 UI 配置。
 
     # 是否注册整组 UI 路由（/api/remote-agent/ui/*）。

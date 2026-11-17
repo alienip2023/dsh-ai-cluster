@@ -1,6 +1,6 @@
-# AI 大一统
+# AI 集群控制
 
-[![CI](https://github.com/zbzbhs/dsh-remote-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/zbzbhs/dsh-remote-agent/actions/workflows/ci.yml)
+[![CI](https://github.com/alienip2023/dsh-ai-cluster/actions/workflows/ci.yml/badge.svg)](https://github.com/alienip2023/dsh-ai-cluster/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522.19%20%7C%7C%20%3E%3D24-green)
 ![dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen)
@@ -8,9 +8,9 @@
 **简体中文** | [English](README.en.md)
 
 > **当前状态：阶段 1a，功能等同 dsh-remote-agent 0.10.1-fork.93，身份已切换。**
-> 包名 `dsh-ai-unified`，版本 0.1.0；内部服务名 `remote-agent:*`、工具名 `remote_*`、端口 19387 均保持兼容，见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+> 包名 `dsh-ai-cluster`，版本 0.2.0；内部服务名 `remote-agent:*`、工具名 `remote_*`、端口 19387 均保持兼容，见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
-**AI 大一统**：把几台电脑连成一张 AI 网络，主控派任务、副机执行、统一面板、模型与记忆统一配置。
+**AI 集群控制**：把几台电脑连成一张 AI 网络，主控派任务、副机执行、统一面板、模型与记忆统一配置。
 
 当前阶段的能力：把另一台电脑变成你 DSH 的**远程 Agent 同事**。
 
@@ -20,7 +20,7 @@
 ```
 ┌─────────────── 主电脑（hub）────────────────┐
 │  DSH · 模型 · 会话日志 · 全部凭证            │
-│  ┌─ dsh-remote-agent ─────────────────────┐ │
+│  ┌─ dsh-ai-cluster ─────────────────────┐ │
 │  │ 26 个远程工具 + Web 面板               │ │
 │  └────────────────────────────────────────┘ │
 └──────────────────▲──────────────────────────┘
@@ -42,7 +42,7 @@
 | **Node** | `^22.19.0 \|\| >=24.0.0` |
 | **测试** | 1090 项（1087 pass / 3 skip）· 134 条文档漂移断言 · eslint 严格档 |
 
-**Web 面板**（侧栏「远程同事」）：节点列表（含 CPU/内存徽章）、派发任务、
+**Web 面板**（侧栏「AI 集群控制」）：节点列表（含 CPU/内存徽章）、派发任务、
 任务状态、结果摘要、工作区变更、成品清单、日志尾巴、**环境体检**、
 **工作区共享（SMB）**、模型下拉。
 
@@ -89,7 +89,7 @@ node bin/dsh-remote-setup.js
 
 > **Windows 不想开终端？** 在插件的 `bin/` 目录里**双击
 > `setup.cmd`** —— 打开的窗口里全程回车即可。
-> 插件装在 `%USERPROFILE%\.dsh\dsh_orb\dsh-plugin\dsh-remote-agent\bin\`。
+> 插件装在 `%USERPROFILE%\.dsh\dsh_orb\dsh-plugin\dsh-ai-cluster\bin\`。
 
 1. **主机上跑**：选「1=主机」→ 向导自动找本机局域网 IP、生成 `nt_` 强随机
    `nodeToken`、输出**副机配对码**（一行 `dshra1://…`）与两台机器的完整 YAML
@@ -309,7 +309,7 @@ node bin/dsh-remote-setup.js --doctor 你的配置.yml
 
 ## 局域网发现（可选）
 
-**默认关闭**，关闭时不绑定任何端口。只在你明确希望「面板里自动列出同一局域网的其他 AI 大一统节点」时再开：
+**默认关闭**，关闭时不绑定任何端口。只在你明确希望「面板里自动列出同一局域网的其他 AI 集群控制节点」时再开：
 
 ```yaml
 discovery:
@@ -319,7 +319,7 @@ discovery:
   groupKey: ''       # 非空时用 HMAC-SHA256 校验，只接受同组的广播
 ```
 
-配在 hub 或节点的插件 config 里均可。开启后每 `intervalMs` 向局域网 UDP 广播一个很小的 offer：服务名 `dsh-ai-unified`、协议版本、节点名、局域网 IPv4、hub 端口、角色（hub/node）、插件版本、`pairRequired: true`。**不含**口令、token、证书、配对码；`groupKey` 本身也不外发，只发 HMAC 证明。
+配在 hub 或节点的插件 config 里均可。开启后每 `intervalMs` 向局域网 UDP 广播一个很小的 offer：兼容协议服务名 `dsh-ai-unified`、协议版本、节点名、局域网 IPv4、hub 端口、角色（hub/node）、插件版本、`pairRequired: true`。**不含**口令、token、证书、配对码；`groupKey` 本身也不外发，只发 HMAC 证明。
 
 收到的广播只进内存表（最多 64 条）并显示在面板 `overview.discovery` 与节点自检里，**绝不自动连接、绝不自动配对**——连接仍需走配对码。
 
@@ -346,13 +346,13 @@ discovery:
 
 ```bash
 # 通过 DSH 插件安装器（GitHub 源）
-dsh plugin add github:zbzbhs/dsh-remote-agent
+dsh plugin add github:alienip2023/dsh-ai-cluster
 
 # 或通过 npm
-npm install -g dsh-remote-agent
+npm install -g dsh-ai-cluster
 ```
 
-或在 DSH 的插件对话框里填 `github:zbzbhs/dsh-remote-agent`。
+或在 DSH 的插件对话框里填 `github:alienip2023/dsh-ai-cluster`。
 
 **装完重启 DSH 就能用**：
 
@@ -419,7 +419,7 @@ npm install -g dsh-remote-agent
 
 ```yaml
 - id: remote-agent
-  name: dsh-remote-agent
+  name: dsh-ai-cluster
   inject: ['tools', 'agentLoop', 'sessions']   # ← 副机必须用这三个
   config:
     role: worker
@@ -485,7 +485,7 @@ ack 自动按明文兼容旧中继继续），安全边界与已知局限见
 | 「在副机 50GB 目录里搜这个词」 | `remote_grep` |
 | 「副机那个文件夹结构长什么样」 | `remote_tree` |
 
-另有一个 Web 面板（侧栏「远程同事」）：节点列表（含 CPU/内存/负载与仓库清单）、
+另有一个 Web 面板（侧栏「AI 集群控制」）：节点列表（含 CPU/内存/负载与仓库清单）、
 派发任务、**待审批卡**（exec 任务默认挂起，批准才下发）、任务状态、结果摘要、
 工作区变更、**变更 diff**（文本文件改动的 unified diff）、成品清单、日志尾巴。
 

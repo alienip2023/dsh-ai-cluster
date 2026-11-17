@@ -8,8 +8,8 @@
 # relay-init.sh 生成的是填好值的同一份。
 
 [Unit]
-Description=dsh-remote-agent relay (addressing + forwarding only)
-Documentation=https://github.com/zbzbhs/dsh-remote-agent
+Description=dsh-ai-cluster relay (addressing + forwarding only)
+Documentation=https://github.com/alienip2023/dsh-ai-cluster
 After=network-online.target
 Wants=network-online.target
 

@@ -1,4 +1,4 @@
-# dsh-remote-agent 部署路径（profiles）
+# dsh-ai-cluster 部署路径（profiles）
 
 本目录是**部署档案**：主电脑（hub）与副电脑（worker）各自装什么、config 怎么填、怎么验证连通。
 三种路径按「谁有公网」划分，选一条走通即可，不要混着来。
@@ -61,10 +61,10 @@
 # 1. Node.js >= 22（22.19+ 或 24+）
 node --version
 
-# 2. 把 dsh-remote-agent 装进当前 profile（bundle 形态）
+# 2. 把 dsh-ai-cluster 装进当前 profile（bundle 形态）
 #    在 DSH 里执行：
-#    plugin_manager action=install_bundle target="<绝对路径>/dsh-remote-agent"
-#    或手工把 dsh-remote-agent/profiles/hub.cordis.yml 的 insert 段并入 profile patch 层
+#    plugin_manager action=install_bundle target="<绝对路径>/dsh-ai-cluster"
+#    或手工把 dsh-ai-cluster/profiles/hub.cordis.yml 的 insert 段并入 profile patch 层
 
 # 3. 确认 7 个工具已注册（remote_nodes / remote_task / remote_status /
 #    remote_handoff / remote_manifest / remote_pull / remote_cancel）
@@ -77,8 +77,8 @@ node --version
 
 ```bash
 node --version              # 同样 >= 22
-# 同一份 dsh-remote-agent 目录（可用 rsync / 压缩包 / 私有 registry 分发）
-# 在副机 profile patch 层并入 dsh-remote-agent/profiles/worker.cordis.yml 的 insert 段
+# 同一份 dsh-ai-cluster 目录（可用 rsync / 压缩包 / 私有 registry 分发）
+# 在副机 profile patch 层并入 dsh-ai-cluster/profiles/worker.cordis.yml 的 insert 段
 ```
 
 副电脑需要：`profiles/worker.cordis.yml`、`roots` 里声明的工作区目录（**必须真实存在**）、
@@ -163,10 +163,10 @@ token 与业务帧都在明文裸奔 —— 按 [SECURITY.md](../../SECURITY.md)
 ### 主电脑（hub）config 怎么填
 
 ```yaml
-# dsh-remote-agent/profiles/hub.cordis.yml（节选）
+# dsh-ai-cluster/profiles/hub.cordis.yml（节选）
 # 覆盖片段：id 与包内 patch 插入行同 id，用于改那一行的 config
 - id: remote-agent
-  name: dsh-remote-agent
+  name: dsh-ai-cluster
   config:
     role: hub
     nodePath: /api/remote-agent/node   # direct 用；relay 模式下也注册，无害
@@ -186,10 +186,10 @@ token 与业务帧都在明文裸奔 —— 按 [SECURITY.md](../../SECURITY.md)
 ### 副电脑（node）config 怎么填
 
 ```yaml
-# dsh-remote-agent/profiles/worker.cordis.yml（节选）
+# dsh-ai-cluster/profiles/worker.cordis.yml（节选）
 # 覆盖片段：id 与包内 patch 插入行同 id
 - id: remote-agent
-  name: dsh-remote-agent
+  name: dsh-ai-cluster
   config:
     role: worker
     nodeId: slave-pc                       # 唯一；^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$
@@ -249,7 +249,7 @@ remote_pull  {taskId:"...", paths:["hello.txt"], dest:"D:\\pulled"}
 - 健康检查是 `/api/remote-agent/healthz`，不是 `/healthz`。
 
 ```yaml
-# dsh-remote-agent/profiles/hub.cordis.yml（节选）
+# dsh-ai-cluster/profiles/hub.cordis.yml（节选）
 config:
   role: hub
   nodePath: /api/remote-agent/node      # 副机拨入的 upgrade 路径
@@ -264,7 +264,7 @@ config:
 ### 副电脑（node）config 怎么填
 
 ```yaml
-# dsh-remote-agent/profiles/worker.cordis.yml（节选）
+# dsh-ai-cluster/profiles/worker.cordis.yml（节选）
 config:
   role: worker
   nodeId: slave-pc
@@ -337,7 +337,7 @@ cloudflared tunnel run --url http://127.0.0.1:8890 dsh-hub
 ### 主电脑 config 怎么填
 
 ```yaml
-# dsh-remote-agent/profiles/hub.cordis.yml（节选）
+# dsh-ai-cluster/profiles/hub.cordis.yml（节选）
 config:
   role: hub
   nodePath: /api/remote-agent/node
@@ -349,7 +349,7 @@ config:
 ### 副电脑（node）config 怎么填
 
 ```yaml
-# dsh-remote-agent/profiles/worker.cordis.yml（节选）
+# dsh-ai-cluster/profiles/worker.cordis.yml（节选）
 config:
   role: worker
   nodeId: slave-pc
@@ -390,7 +390,7 @@ hub 插件自带一个浏览器面板，不用敲工具名就能看节点、派�
 
 ### 面板在哪
 
-主电脑 DSH 的**侧栏图标**里会多一个「远程同事」（两个屏幕 + 一条连线）的图标。
+主电脑 DSH 的**侧栏图标**里会多一个「AI 集群控制」（两个屏幕 + 一条连线）的图标。
 点它 → 在**主面板**区域打开面板。
 
 实现上是标准的两插槽配对（`lib/client.js`）：
@@ -453,7 +453,7 @@ cancel / pull）。面板每 8 秒刷新一次，页面不可见（后台标签/
 ```yaml
 # id 必须是 remote-agent（与包内 cordis.patch.yml 同 id），否则会 double-mount
 - id: remote-agent
-  name: dsh-remote-agent
+  name: dsh-ai-cluster
   config:
     role: hub
     # ── 可视化界面 ──────────────────────────────────────────
@@ -465,7 +465,7 @@ cancel / pull）。面板每 8 秒刷新一次，页面不可见（后台标签/
 
 ```yaml
 - id: remote-agent
-  name: dsh-remote-agent
+  name: dsh-ai-cluster
   config:
     role: hub
     uiEnabled: true
@@ -492,7 +492,7 @@ curl -sS -X POST http://127.0.0.1:8890/api/remote-agent/ui/pull \
   -H 'content-type: application/json' -d '{"taskId":"x","paths":["a.txt"]}'
 # → 403 {"error":"pull-disabled","message":"未配置 uiPullRoot，UI 拉取已禁用"}
 
-# ③ 浏览器里：侧栏出现「远程同事」图标，点开能看到节点与任务列表
+# ③ 浏览器里：侧栏出现「AI 集群控制」图标，点开能看到节点与任务列表
 ```
 
 面板读不到数据时，先看 `overview` 路由是否 404（`uiEnabled: false` 或插件没加载），
@@ -533,7 +533,7 @@ curl -sS -X POST http://127.0.0.1:8890/api/remote-agent/ui/pull \
 | 副机日志反复 `reconnecting` | 网络不可达（先 `curl` 中继/hub 地址）；副机**不会**因此崩，任务照常本地跑 |
 | `remote_nodes` 里 `online:false` | 曾经连上过又断了；看中继日志的 `node offline` 与副机日志 |
 | `duplicate-node` | 同一个 `nodeId` 起了两个实例；停掉一个或改 `nodeId` |
-| `protocol-mismatch` | 两端 `dsh-remote-agent` 版本不一致，升级到同一份 |
+| `protocol-mismatch` | 两端 `dsh-ai-cluster` 版本不一致，升级到同一份 |
 | pull 报 `artifact-denied` | 目标文件是 `intermediate`（日志/临时/中间产物），只回元数据，不传输字节 |
 | 面板拉取按钮是灰的 | 没配 `uiPullRoot`（这是设计如此，不是 bug）；见第 4 节 |
 | 面板「读取失败」 | `uiEnabled: false`、插件没加载、或 `/api/remote-agent/ui/overview` 返回非 200 |

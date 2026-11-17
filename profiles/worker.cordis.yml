@@ -1,4 +1,4 @@
-# dsh-remote-agent —— 副机（worker）profile 覆盖片段
+# dsh-ai-cluster —— 副机（worker）profile 覆盖片段
 #
 # 用法：把本文件内容并入副机 profile 的 patch 层（默认
 # `<DSH_HOME>/profiles/<profile>/cordis.patch.yml`）。
@@ -22,7 +22,7 @@
 #
 # 关闭本插件：给该行加 `disabled: true`（同 id），不要删文件。
 - id: remote-agent
-  name: dsh-remote-agent
+  name: dsh-ai-cluster
   # ⚠ 副机**必须**清空 inject。
   #
   # 包内 cordis.patch.yml 给这一行声明了 `inject: ['webServer','tools','systemPrompt']`

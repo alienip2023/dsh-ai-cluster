@@ -1,17 +1,17 @@
 {
-  "name": "dsh-ai-unified",
-  "version": "0.1.0",
+  "name": "dsh-ai-cluster",
+  "version": "0.2.0",
   "type": "module",
-  "description": "AI 大一统：把几台电脑连成一张 AI 网络，主控派任务、副机执行、统一面板、模型与记忆统一配置。",
+  "description": "AI 集群控制 / AI Cluster Control：把几台电脑连成一张 AI 网络，主控派任务、副机执行、统一面板、模型与记忆统一配置。",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/alienip2023/dsh-ai-unified.git"
+    "url": "git+https://github.com/alienip2023/dsh-ai-cluster.git"
   },
   "bugs": {
-    "url": "https://github.com/alienip2023/dsh-ai-unified/issues"
+    "url": "https://github.com/alienip2023/dsh-ai-cluster/issues"
   },
-  "homepage": "https://github.com/alienip2023/dsh-ai-unified#readme",
+  "homepage": "https://github.com/alienip2023/dsh-ai-cluster#readme",
   "keywords": [
     "dsh",
     "deepseek-harness",

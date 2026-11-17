@@ -9,6 +9,10 @@
 
 ---
 
+## 0.2.0
+
+renamed to dsh-ai-cluster.
+
 ## [0.10.1-fork.68] — 2026-11-11
 
 ### Fixed

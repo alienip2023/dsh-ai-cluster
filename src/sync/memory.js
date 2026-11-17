@@ -406,7 +406,7 @@ export function buildRelayAutoconfigYaml(existingText, { relayUrl, hubToken } = 
   const preserved = extractPreservedConfig(body, ['role', 'transportMode', 'relayUrl', 'relay'])
   const lines = [
     '- id: remote-agent',
-    '  name: dsh-remote-agent',
+    '  name: dsh-ai-cluster',
     `  ${injectLine(body)}`,
     '  config:',
     `    role: ${configScalar(body, 'role', 'hub')}`,

@@ -1,6 +1,6 @@
-# AI Unified
+# AI Cluster Control
 
-[![CI](https://github.com/zbzbhs/dsh-remote-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/zbzbhs/dsh-remote-agent/actions/workflows/ci.yml)
+[![CI](https://github.com/alienip2023/dsh-ai-cluster/actions/workflows/ci.yml/badge.svg)](https://github.com/alienip2023/dsh-ai-cluster/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%E2%89%A522.19%20%7C%7C%20%3E%3D24-green)
 ![dependencies](https://img.shields.io/badge/dependencies-zero-brightgreen)
@@ -8,9 +8,9 @@
 [简体中文](README.md) | **English**
 
 > **Current status: stage 1a — functionally identical to dsh-remote-agent 0.10.1-fork.93; identity switched.**
-> Package `dsh-ai-unified` 0.1.0. Internal service names (`remote-agent:*`), tool names (`remote_*`) and port 19387 are unchanged; see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (Chinese).
+> Package `dsh-ai-cluster` 0.2.0. Internal service names (`remote-agent:*`), tool names (`remote_*`) and port 19387 are unchanged; see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (Chinese).
 
-**AI Unified** connects several computers into one AI network: the main machine dispatches tasks, worker machines execute, with one panel and unified model/memory configuration.
+**AI Cluster Control** connects several computers into one AI network: the main machine dispatches tasks, worker machines execute, with one panel and unified model/memory configuration.
 
 At this stage it turns another computer into a **remote agent co-worker** for your DSH.
 
@@ -22,7 +22,7 @@ explicitly pull them.
 ```
 ┌──────────── main machine (hub) ────────────┐
 │  DSH · model · session logs · all credentials │
-│  ┌─ dsh-remote-agent ─────────────────────┐ │
+│  ┌─ dsh-ai-cluster ─────────────────────┐ │
 │  │ 24 remote_* tools + Web panel           │ │
 │  └────────────────────────────────────────┘ │
 └──────────────────▲──────────────────────────┘
@@ -44,7 +44,7 @@ explicitly pull them.
 | **Node** | `^22.19.0 \|\| >=24.0.0` |
 | **Tests** | 987 (985 pass / 2 skip) · 123 doc-drift assertions · eslint strict |
 
-**Web panel**（sidebar → "远程同事" / Remote co-worker）：node list with CPU /
+**Web panel**（sidebar → "AI 集群控制" / AI Cluster Control）：node list with CPU /
 memory badges, task dispatch, task states, result summaries, workspace changes,
 change diffs (unified diffs of text-file edits), final artifacts, log tail,
 **environment health-check**, **workspace sharing (SMB)**, model dropdown.
@@ -94,7 +94,7 @@ node bin/dsh-remote-setup.js
 > **Windows, no terminal?** In the plugin's `bin/` directory **double-click
 > `setup.cmd`** —— then just keep pressing Enter in the window
 > that opens.
-> The plugin lives at `%USERPROFILE%\.dsh\dsh_orb\dsh-plugin\dsh-remote-agent\bin\`.
+> The plugin lives at `%USERPROFILE%\.dsh\dsh_orb\dsh-plugin\dsh-ai-cluster\bin\`.
 
 1. **Run on the hub**: choose "1 = hub" → the wizard auto-detects the LAN IP,
    generates a strong-random `nt_` `nodeToken`, and prints the **worker
@@ -259,20 +259,20 @@ These are the design premises of this package — read them before changing it:
 
 ```bash
 # via DSH's plugin installer (GitHub)
-dsh plugin add github:zbzbhs/dsh-remote-agent
+dsh plugin add github:alienip2023/dsh-ai-cluster
 
 # or via npm
-npm install -g dsh-remote-agent
+npm install -g dsh-ai-cluster
 ```
 
-Or type `github:zbzbhs/dsh-remote-agent` into DSH's plugin dialog.
+Or type `github:alienip2023/dsh-ai-cluster` into DSH's plugin dialog.
 
 After installing, make sure this stanza exists in `cordis.patch.yml` (the
 in-package patch inserts it automatically):
 
 ```yaml
 - id: remote-agent
-  name: dsh-remote-agent
+  name: dsh-ai-cluster
   inject: ['webServer', 'tools', 'systemPrompt']
   config:
     role: hub
@@ -302,7 +302,7 @@ mandatory**:
 
 ```yaml
 - id: remote-agent
-  name: dsh-remote-agent
+  name: dsh-ai-cluster
   inject: []                    # ← mandatory on the worker, or it never activates (see below)
   config:
     role: worker

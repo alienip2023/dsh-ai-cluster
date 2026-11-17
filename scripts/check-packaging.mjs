@@ -12,7 +12,7 @@
  * 都容易漏：
  *
  *   - 新增一个 `lib/foo.js` 但忘了加进 `files` → 从 git 装的人拿到一个缺文件的包
- *   - `exports` 里写了一个已删除的路径 → `import 'dsh-remote-agent/hub'` 报错
+ *   - `exports` 里写了一个已删除的路径 → `import 'dsh-ai-cluster/hub'` 报错
  *   - `dsh.bundle.patch` 指向不存在的 yml → loader 读不到 patch，插件行永不插入
  *     （**这是 v0.1 的一个真实 blocker**，由独立验证发现）
  *
@@ -39,6 +39,14 @@ const exists = (rel) => {
 
 const problems = []
 const notes = []
+
+if (pkg.name !== 'dsh-ai-cluster') {
+  problems.push(`package.json name 应为 dsh-ai-cluster，实际 ${JSON.stringify(pkg.name)}`)
+}
+
+if (pkg.version !== '0.2.0') {
+  problems.push(`package.json version 应为 0.2.0，实际 ${JSON.stringify(pkg.version)}`)
+}
 
 // ── 1) files 字段 ────────────────────────────────────────────────────────────
 const files = Array.isArray(pkg.files) ? pkg.files : []
@@ -131,8 +139,8 @@ if (typeof patch !== 'string') {
   if (!/insert:/.test(body)) {
     problems.push(`dsh.bundle.patch (${patch}) 里没有 insert: —— loader 不会插入任何行`)
   }
-  if (!/dsh-remote-agent/.test(body)) {
-    problems.push(`dsh.bundle.patch (${patch}) 里没有引用 dsh-remote-agent`)
+  if (!/^\s*-\s+id:\s*remote-agent\s*\n\s+name:\s*dsh-ai-cluster\s*$/m.test(body)) {
+    problems.push(`dsh.bundle.patch (${patch}) 缺少活动插件行 id: remote-agent / name: dsh-ai-cluster`)
   }
   notes.push(`dsh.bundle.patch: ${patch}（含 insert）`)
 }

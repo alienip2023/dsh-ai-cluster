@@ -36,6 +36,21 @@ const pkg = JSON.parse(read('package.json'))
 const results = []
 const check = (id, label, ok, detail) => results.push({ id, label, ok: Boolean(ok), detail })
 
+check('identity.package', '包名为 dsh-ai-cluster',
+  pkg.name === 'dsh-ai-cluster', 'package.json')
+check('identity.version', '版本为 0.2.0',
+  pkg.version === '0.2.0', 'package.json')
+check('identity.line', 'profiles 与包内活动插件行使用 remote-agent / dsh-ai-cluster',
+  ['cordis.patch.yml', 'profiles/hub.cordis.yml', 'profiles/worker.cordis.yml'].every((file) =>
+    /^\s*-\s+id:\s*remote-agent\s*\n\s+name:\s*dsh-ai-cluster\s*$/m.test(read(file))),
+  'cordis.patch.yml + profiles')
+check('identity.titles', '文档标题与面板显示 AI 集群控制 / AI Cluster Control',
+  /^# AI 集群控制\s*$/m.test(read('README.md'))
+  && /^# AI Cluster Control\s*$/m.test(read('README.en.md'))
+  && /^# dsh-ai-cluster 部署路径/m.test(readme)
+  && client.includes("label: function () { return 'AI 集群控制' }"),
+  'README.md + README.en.md + profiles/README.md + lib/client.js')
+
 /**
  * 取一个具名函数的完整函数体（花括号匹配）。
  *
@@ -868,35 +883,36 @@ check('65', 'eslint 严格档：lint script + 配置文件 + CI job 三件套齐
  *   3. hub 字段级清洗 + 独立封顶
  *   4. registry.list → nodeView → 面板 <select>
  *
- * 安全边界：只报 provider/id/name，绝不带 apiKeyEnv / baseURL / 凭证。
+ * 安全边界：只报 provider/id/name 与可选 efforts，绝不带 apiKeyEnv / baseURL / 凭证。
  */
 {
   const nodeIdx = read('lib/node/index.js')
+  const modelCatalog = read('lib/node/model-catalog.js')
   const ingestSrc = read('lib/hub/registry-ingest.js')
   const viewsSrc = read('lib/hub/views.js')
   const clientSrc = read('lib/client.js')
 
   check('75', '#27 模型清单链路：副机探测 + 帧自述 + hub 清洗 + 视图投影 + 面板下拉都在',
-    /export async function readAvailableModels/.test(nodeIdx)
-    && /llm\.listProviders\(\)/.test(nodeIdx)
-    && /llm\.listModels\(/.test(nodeIdx)
-    && /models:\s*cachedModels/.test(nodeIdx)
+    /export async function readAvailableModels/.test(modelCatalog)
+    && /from '\.\/model-catalog\.js'/.test(nodeIdx)
+    && /llm\.listProviders\(\)/.test(modelCatalog)
+    && /llm\.listModels\(/.test(modelCatalog)
+    && /models:\s*getCachedModels\(\)/.test(nodeIdx)
     && /MAX_NODE_MODELS/.test(ingestSrc)
     && /models: Array\.isArray\(r\.models\)/.test(read('lib/hub/node-registry.js'))
     && /models: Array\.isArray\(n\.models\)/.test(viewsSrc)
     && /跟随副机默认/.test(clientSrc)
     && /__custom__/.test(clientSrc),
-    'lib/node/index.js + registry-ingest.js + node-registry.js + views.js + client.js')
+    'lib/node/model-catalog.js + index.js + registry-ingest.js + node-registry.js + views.js + client.js')
 
-  check('76', '#27 安全：模型自述只含 provider/id/name，不碰凭证',
+  check('76', '#27 安全：模型自述只含 provider/id/name 与可选 efforts，不碰凭证',
     (() => {
-      const code = nodeIdx.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
-      const i = code.indexOf('export async function readAvailableModels')
-      if (i < 0) return false
-      const seg = code.slice(i, i + 2600)
+      const code = stripComments(modelCatalog)
+      const seg = bodyOf(code, 'probeAvailableModels')
+      if (seg === '') return false
       // 上报对象里不得出现凭证相关字段
       if (/apiKeyEnv/.test(seg) || /baseURL/.test(seg)) return false
-      const push = seg.match(/models\.push\(\{([^}]*)\}\)/)
+      const push = seg.match(/const entry = \{([^}]*)\}/)
       if (!push) return false
       const inner = push[1]
       const keys = new Set()
@@ -907,8 +923,11 @@ check('65', 'eslint 严格档：lint script + 配置文件 + CI job 三件套齐
       }
       const got = [...keys].sort().join(',')
       return got === 'id,name,provider'
+        && /if \(efforts !== undefined\) entry\.efforts = efforts/.test(seg)
+        && /models\.push\(entry\)/.test(seg)
+        && !/entry\.(?!efforts\b)\w+\s*=(?!=)/.test(seg)
     })(),
-    'lib/node/index.js readAvailableModels（上报字段恰好 provider/id/name）')
+    'lib/node/model-catalog.js probeAvailableModels（上报字段为 provider/id/name 与可选 efforts）')
 }
 
 /* ── 77~78. 环境体检（2026-10-17）──
@@ -972,7 +991,7 @@ check('65', 'eslint 严格档：lint script + 配置文件 + CI job 三件套齐
  * 且所有提示文案都不得建议 0.0.0.0。
  */
 {
-  const indexSrc = read('lib/index.js')
+  const indexSrc = read('src/plugin/index.js')
   const patchSrc = read('cordis.patch.yml')
   const clientSrc3 = read('lib/client.js')
   const setupSrc = read('lib/setup-routes.js')
@@ -996,7 +1015,7 @@ check('65', 'eslint 严格档：lint script + 配置文件 + CI job 三件套齐
     && !/host:\s*'0\.0\.0\.0'/.test(patchCode)
     // 必须把这个坑写进注释（防止后来者又"帮用户改好"）
     && /启动崩溃/.test(patchSrc),
-    'lib/index.js（auto 推断）+ cordis.patch.yml（生效行不碰 webserver + 事故留档）')
+    'src/plugin/index.js（auto 推断）+ cordis.patch.yml（生效行不碰 webserver + 事故留档）')
 
   check('80', '开箱即用：副机表单简化 + 工作区自动创建 + 首次自动体检',
     // 工作区预填
