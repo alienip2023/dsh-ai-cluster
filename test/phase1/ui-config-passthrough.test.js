@@ -1,10 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { applyHub as sourceApplyHub } from '../../lib/hub/index.js'
+import { applyHub as generatedApplyHub } from '../../lib/plugin/_lib/hub/index.js'
 import { registerUiRoutes } from '../../src/http/routes.js'
 import { makeCtx } from './_plugin-ctx.js'
 
-function fixture(t, config) {
+function fixture(t, config, assemble) {
   const ctx = makeCtx()
   const routes = new Map()
   ctx.webServer = {
@@ -16,7 +17,7 @@ function fixture(t, config) {
       }
     },
   }
-  const disposers = registerUiRoutes({
+  const disposers = assemble ? assemble(ctx) : registerUiRoutes({
     ctx,
     registry: { list: () => [], listTasks: () => [] },
     pulls: { activeCount: 0 },
@@ -67,11 +68,46 @@ test('empty config preserves the default panel config', async (t) => {
   assert.equal(current.body.config.relayUrl, '')
 })
 
-test('plugin passes raw config alongside defaults and sessionGate to registerUiRoutes', () => {
-  const source = readFileSync(new URL('../../src/plugin/index.js', import.meta.url), 'utf8')
-  assert.match(
-    source,
-    /handles\.routes\s*=\s*registerUiRoutes\(\{\s*ctx, registry, pulls, log, defaults, sessionGate: handles\.hub\.sessionGate, config\s*\}\)/,
-    'registerUiRoutes must receive config with defaults and sessionGate',
-  )
-})
+for (const [name, applyHub] of [['source', sourceApplyHub], ['generated', generatedApplyHub]]) {
+  test(`${name} hub passes raw config, defaults and sessionGate to the injected UI registrar`, async (t) => {
+    const config = {
+      role: 'hub', uiEnabled: true, sessionGate: true,
+      defaults: { timeoutMs: 4321 }, nodeToken: 'secret-token',
+      listenPort: 0, audit: false, systemPrompt: false, discovery: { enabled: false },
+    }
+    const registrations = []
+    let hub
+    const routes = fixture(t, config, (ctx) => {
+      config.stateDir = ctx.stateDir
+      ctx.webServer.registerUpgrade = () => () => {}
+      ctx.tools = { register: () => () => {} }
+      hub = applyHub(ctx, config, {
+        registerUiRoutes(options) {
+          registrations.push(options)
+          assert.equal(options.ctx, ctx)
+          return registerUiRoutes(options)
+        },
+      })
+      return [() => hub.disposeAll()]
+    })
+    assert.equal(registrations.length, 1, 'the injected registrar must be called exactly once')
+    const options = registrations[0]
+    assert.equal(options.config, config, 'pass the raw config object')
+    assert.deepEqual(options.defaults, config.defaults)
+    assert.equal(options.sessionGate, hub.sessionGate)
+    assert.equal(options.sessionGate.required, true)
+    assert.equal(options.registry, hub.registry)
+    assert.equal(options.pulls, hub.pulls)
+    assert.equal(typeof options.log, 'function')
+
+    const current = await request(routes, '/api/ai-cluster/ui/config')
+    assert.equal(current.status, 200)
+    assert.equal(current.body.ok, true)
+    assert.equal(current.body.config.role, config.role)
+    assert.equal(current.body.config.uiEnabled, true)
+    assert.equal(current.body.config.sessionGate, true)
+    assert.equal(current.body.config.nodeTokenSet, true)
+    assert.equal(JSON.stringify(current.body).includes(config.nodeToken), false)
+    assert.deepEqual(await request(routes, '/api/remote-agent/ui/config'), current)
+  })
+}

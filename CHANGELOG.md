@@ -9,6 +9,16 @@
 
 ---
 
+## 0.2.1
+
+### Fixed
+- **启动期重复注册（safe mode 根因）**：apply 层与 hub 层同时调用 `registerUiRoutes`，导致 `/api/remote-agent/ui/*` 27 条 exact route 重复注册、插件被判失败，前端恢复流程重新 import 同一 bundle 又撞 `duplicate factory registration for "dsh-remote-agent"`，整个 profile 回退 safe mode。现在 UI 路由只有 apply 层一个所有者，hub 通过注入的 registrar 回调；`registerUiRoutes` 另按 host `webServer` 去重并在 dispose 时释放，重复调用安全。
+- **客户端模块标识**：`lib/client.js` 的 module id、面板键、主面板 slot 名全部改为 `dsh-ai-cluster`；HTTP 路径同时保留 `/api/ai-cluster/ui`（主）与 `/api/remote-agent/ui`（兼容）。
+
+### Tests
+- 新增 `test/phase1/startup-regressions.test.js`：hub 组合下 31 个后缀 × 2 前缀各注册一次、dispose 后可重注册、`uiEnabled:false` 不注册、客户端源码不得残留 `dsh-remote-agent` 模块名。
+- `test/phase1/ui-config-passthrough.test.js` 从源码文本断言改为行为断言。
+
 ## 0.2.0
 
 renamed to dsh-ai-cluster.

@@ -172,11 +172,16 @@ export function apply(ctx, config = {}) {
 
   // Hub services are made visible by the declarative inject on the loader row.
   if (role === ROLE.HUB || role === ROLE.BOTH) {
-    handles.hub = applyHub(ctx, config)
+    handles.hub = applyHub(ctx, config, {
+      registerUiRoutes(options) {
+        // The apply layer owns UI routes; use the hub's live runtime getters.
+        handles.routes = registerUiRoutes(options)
+        return []
+      },
+    })
     const { registry, pulls } = handles.hub
     const { defaults } = normalizeConfig(config)
     handles.tools = registerClusterTools({ ctx, registry, pulls, log, defaults, sessionGate: handles.hub.sessionGate })
-    handles.routes = registerUiRoutes({ ctx, registry, pulls, log, defaults, sessionGate: handles.hub.sessionGate, config })
   }
 
   if (role === ROLE.WORKER || role === ROLE.BOTH) {

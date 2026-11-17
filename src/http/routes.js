@@ -126,6 +126,9 @@ import { LEGACY_UI_API_PREFIX, UI_API_PREFIX } from './prefix.js'
 import { resolvePullDest } from '../ops/pull.js'
 export { LEGACY_UI_API_PREFIX, UI_API_PREFIX, resolvePullDest }
 
+// Track only routes owned by this registrar, scoped to the host web server.
+const registeredUiRoutes = new WeakMap()
+
 /** 单次请求体上限：UI 只发小 JSON，超过就是异常。 */
 const MAX_BODY = 256 * 1024
 
@@ -353,6 +356,9 @@ export function registerUiRoutes({
   getDiscovery = null,
 }) {
   const disposers = []
+  const webServer = ctx.webServer
+  let registered = registeredUiRoutes.get(webServer)
+  if (!registered) registeredUiRoutes.set(webServer, registered = new Set())
   const guard = makeGuard(ctx, log)
 
   /** 取当前可达性结论：getter 优先，静态快照兜底（兼容老调用方/测试）。 */
@@ -415,8 +421,9 @@ export function registerUiRoutes({
    *      且 UI 抛错不能让 host 崩。
    */
   const route = (pathname, handler) => {
+    if (registered.has(pathname)) return
     try {
-      disposers.push(ctx.webServer.register({
+      const release = webServer.register({
         kind: 'exact',
         path: pathname,
         handler: async (req, res) => {
@@ -460,7 +467,15 @@ export function registerUiRoutes({
             }
           }
         },
-      }))
+      })
+      registered.add(pathname)
+      let active = true
+      disposers.push(() => {
+        if (!active) return
+        release()
+        active = false
+        registered.delete(pathname)
+      })
       registeredCount += 1
 
     } catch (err) {
