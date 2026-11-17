@@ -122,9 +122,9 @@ import http from 'node:http'
 import https from 'node:https'
 import { applyRelayMemory, buildRelayAutoconfigYaml, readRelayToken, readRelayUrl, readRelayTransportMode } from '../../lib/hub/relay-memory.js'
 
-import { UI_API_PREFIX } from './prefix.js'
+import { LEGACY_UI_API_PREFIX, UI_API_PREFIX } from './prefix.js'
 import { resolvePullDest } from '../ops/pull.js'
-export { UI_API_PREFIX, resolvePullDest }
+export { LEGACY_UI_API_PREFIX, UI_API_PREFIX, resolvePullDest }
 
 /** 单次请求体上限：UI 只发小 JSON，超过就是异常。 */
 const MAX_BODY = 256 * 1024
@@ -471,6 +471,12 @@ export function registerUiRoutes({
     }
   }
 
+  const routeBoth = (pathAfterPrefix, handler) => {
+    for (const prefix of [UI_API_PREFIX, LEGACY_UI_API_PREFIX]) {
+      route(`${prefix}${pathAfterPrefix}`, handler)
+    }
+  }
+
   // UI 不携带节点内部资源对象或工作区列表；共享 nodeView 的旧契约保持独立。
   function uiNodeView(raw) {
     const n = nodeView(raw)
@@ -497,7 +503,7 @@ export function registerUiRoutes({
   }
 
   // ── 总览：节点 + 任务计数 + 面板自身能力 ──────────────────────
-  route(`${UI_API_PREFIX}/overview`, (req, res) => {
+  routeBoth('/overview', (req, res) => {
     if (req.method !== 'GET') return writeJson(res, 405, { error: 'method' })
     const rawNodes = registry.list()
     const nodes = rawNodes.map(uiNodeView)
@@ -590,13 +596,13 @@ export function registerUiRoutes({
   })
 
   // ── 节点列表 ──────────────────────────────────────────────────
-  route(`${UI_API_PREFIX}/nodes`, (req, res) => {
+  routeBoth('/nodes', (req, res) => {
     if (req.method !== 'GET') return writeJson(res, 405, { error: 'method' })
     writeJson(res, 200, { nodes: registry.list().map(uiNodeView) })
   })
 
   // ── 任务列表（可按节点过滤） ──────────────────────────────────
-  route(`${UI_API_PREFIX}/tasks`, (req, res) => {
+  routeBoth('/tasks', (req, res) => {
     if (req.method !== 'GET') return writeJson(res, 405, { error: 'method' })
     const url = new URL(req.url ?? '/', 'http://localhost')
     const nodeId = url.searchParams.get('node') ?? ''
@@ -608,7 +614,7 @@ export function registerUiRoutes({
   })
 
   // ── 单任务详情（含 handoff 卡片） ─────────────────────────────
-  route(`${UI_API_PREFIX}/task`, (req, res) => {
+  routeBoth('/task', (req, res) => {
     if (req.method !== 'GET') return writeJson(res, 405, { error: 'method' })
     const url = new URL(req.url ?? '/', 'http://localhost')
     const taskId = url.searchParams.get('taskId') ?? ''
@@ -620,7 +626,7 @@ export function registerUiRoutes({
   })
 
   // ── 动作：派任务 ──────────────────────────────────────────────
-  route(`${UI_API_PREFIX}/dispatch`, async (req, res) => {
+  routeBoth('/dispatch', async (req, res) => {
     if (req.method !== 'POST') return writeJson(res, 405, { error: 'method' })
     const body = await readJson(req)
     if (!body) return writeJson(res, 400, { error: 'bad-body' })
@@ -678,7 +684,7 @@ export function registerUiRoutes({
   })
 
   // ── 动作：取消任务 ────────────────────────────────────────────
-  route(`${UI_API_PREFIX}/cancel`, async (req, res) => {
+  routeBoth('/cancel', async (req, res) => {
     if (req.method !== 'POST') return writeJson(res, 405, { error: 'method' })
     const body = await readJson(req)
     const taskId = typeof body?.taskId === 'string' ? body.taskId : ''
@@ -694,7 +700,7 @@ export function registerUiRoutes({
   // ── 动作：审批（提案 #2 两阶段审批）──────────────────────────
   // 批准挂起的任务：此刻才真正派给副机。任何错误都给明确状态码 ——
   // 批准动作绝不能"看起来成功其实没派"。
-  route(`${UI_API_PREFIX}/approve`, async (req, res) => {
+  routeBoth('/approve', async (req, res) => {
     if (req.method !== 'POST') return writeJson(res, 405, { error: 'method' })
     const body = await readJson(req)
     const taskId = typeof body?.taskId === 'string' ? body.taskId : ''
@@ -713,7 +719,7 @@ export function registerUiRoutes({
   })
 
   // 拒绝挂起的任务：任务转 rejected 终态（幂等；对已派发的任务返回 409）。
-  route(`${UI_API_PREFIX}/reject`, async (req, res) => {
+  routeBoth('/reject', async (req, res) => {
     if (req.method !== 'POST') return writeJson(res, 405, { error: 'method' })
     const body = await readJson(req)
     const taskId = typeof body?.taskId === 'string' ? body.taskId : ''
@@ -735,7 +741,7 @@ export function registerUiRoutes({
   //
   // 语义：**只清 hub 视图，不碰副机状态**（副机是任务状态的权威）。
   // 默认只清终态；在跑的任务保留，除非显式传 includeActive。
-  route(`${UI_API_PREFIX}/purge`, async (req, res) => {
+  routeBoth('/purge', async (req, res) => {
     if (req.method !== 'POST') return writeJson(res, 405, { error: 'method' })
     const body = await readJson(req)
     const wanted = typeof body?.node === 'string' ? body.node : ''
@@ -757,7 +763,7 @@ export function registerUiRoutes({
   // 这是唯一会写磁盘的 UI 动作，所以约束最严：
   //   - 必须配置 pullRoot（否则整个动作禁用）
   //   - dest 只能是 pullRoot 内的相对子路径，且经 realpath 归一后仍在其中
-  route(`${UI_API_PREFIX}/pull`, async (req, res) => {
+  routeBoth('/pull', async (req, res) => {
     if (req.method !== 'POST') return writeJson(res, 405, { error: 'method' })
     if (typeof pullRoot !== 'string' || pullRoot === '') {
       return writeJson(res, 403, { error: 'pull-disabled', message: '未配置 uiPullRoot，UI 拉取已禁用' })
@@ -797,7 +803,7 @@ export function registerUiRoutes({
   // 只读。改配置要编辑 profile 的 patch 层并重启 —— 插件在运行时写它会让
   // 下次启动的配置与当前进程不一致，且没有事务保证。面板负责**展示**当前
   // 生效值 + 指明去哪改，比提供一个半可靠的写入按钮更诚实。
-  route(`${UI_API_PREFIX}/config`, (req, res) => {
+  routeBoth('/config', (req, res) => {
     if (req.method !== 'GET') return writeJson(res, 405, { error: 'method' })
     writeJson(res, 200, { ok: true, config: configView() })
   })
@@ -814,7 +820,7 @@ export function registerUiRoutes({
   // 这里只传能拿到的：reachability 来自 applyHub 的自检、nodesOnline 来自
   // registry。其余留给调用方（命令行）补 —— 拿不到的项 envChecks 会跳过，
   // 不会误报。
-  route(`${UI_API_PREFIX}/env-check`, (req, res) => {
+  routeBoth('/env-check', (req, res) => {
     if (req.method !== 'GET') return writeJson(res, 405, { error: 'method' })
     let result
     try {
@@ -878,7 +884,7 @@ export function registerUiRoutes({
   //
   // **只修机械可判定的项**（webserver host / role）。端口占用、防火墙、
   // 装软件、模型凭证这些需要人判断的，只给建议不动手。
-  route(`${UI_API_PREFIX}/fix`, async (req, res) => {
+  routeBoth('/fix', async (req, res) => {
     if (req.method !== 'POST') return writeJson(res, 405, { error: 'method' })
     const body = await readJson(req)
     const action = typeof body?.action === 'string' ? body.action : ''
@@ -992,7 +998,7 @@ export function registerUiRoutes({
   //     供应链攻击面全落在我们头上）
   //
   // 所以这里只做三件事：探测在不在、说清缺了会怎样、给官方链接与安装命令。
-  route(`${UI_API_PREFIX}/tools`, (req, res) => {
+  routeBoth('/tools', (req, res) => {
     if (req.method !== 'GET') return writeJson(res, 405, { error: 'method' })
     try {
       const r = probeExternalTools()
@@ -1038,7 +1044,7 @@ export function registerUiRoutes({
   //   GET  /share?node=X                 → probe（当前是否管理员 + 已存在的共享）
   //   POST /share { action:'plan', ... } → 生成共享命令 + 主机映射命令
   //   POST /share { action:'unshare', ... } → 生成卸载命令
-  route(`${UI_API_PREFIX}/share`, async (req, res) => {
+  routeBoth('/share', async (req, res) => {
     // GET = 只读探测（不需要确认）
     if (req.method === 'GET') {
       const url = new URL(req.url, 'http://localhost')
@@ -1127,7 +1133,7 @@ export function registerUiRoutes({
   // ⚠ token 披露边界（与 /config 的"只回 set 布尔"同一精神）：
   // 含 token 的完整配对码**只对本机回环请求**生成 —— 面板可能被 lanBind
   // 暴露到局域网，局域网内的另一台机器能打开面板 ≠ 应该拿到主机凭证。
-  route(`${UI_API_PREFIX}/pair-info`, (req, res) => {
+  routeBoth('/pair-info', (req, res) => {
     if (req.method !== 'GET') return writeJson(res, 405, { error: 'method' })
     const url = new URL(req.url, 'http://localhost')
     const ra = String(req.socket?.remoteAddress ?? '')
@@ -1218,7 +1224,7 @@ export function registerUiRoutes({
   //
   // 安全：只接受同源请求（走同一个 guard），且**只记录不执行任何动作**；
   // 请求体上限 4KB，字段逐个白名单，绝不回显。
-  route(`${UI_API_PREFIX}/diag`, async (req, res) => {
+  routeBoth('/diag', async (req, res) => {
     if (req.method !== 'POST') return writeJson(res, 405, { error: 'method' })
     let body = {}
     try {
@@ -1315,7 +1321,7 @@ export function registerUiRoutes({
   //
   // 面板每次打开派发表单时拉它。**不缓存**：模板是用户刚点"保存"就能看到的东西，
   // 缓存只会让"我明明存了怎么没有"这种问题多一个来源。
-  route(`${UI_API_PREFIX}/templates`, async (req, res) => {
+  routeBoth('/templates', async (req, res) => {
     if (req.method !== 'GET') return writeJson(res, 405, { error: 'method' })
     const r = await templateStore.list()
     writeJson(res, 200, {
@@ -1340,7 +1346,7 @@ export function registerUiRoutes({
   //   400 输入不合法（把 message 原文给用户看 —— 它是人话，且不含路径）
   //   404 id 指了一条不存在的模板（可能已被别的会话删了）
   //   409 数量到上限
-  route(`${UI_API_PREFIX}/templates/save`, async (req, res) => {
+  routeBoth('/templates/save', async (req, res) => {
     if (req.method !== 'POST') return writeJson(res, 405, { error: 'method' })
     const body = await readJson(req)
     if (!body) return writeJson(res, 400, { error: 'bad-body' })
@@ -1361,7 +1367,7 @@ export function registerUiRoutes({
   // 用 POST + body.id 而不是 `DELETE /templates/:id`：本文件的路由是
   // `kind:'exact'`（**不支持路径参数**，见文件头结论 1），要支持路径参数就得
   // 改成 prefix 路由，那会把 DSH 的 /api 围栏语义一起改掉 —— 代价远大于收益。
-  route(`${UI_API_PREFIX}/templates/delete`, async (req, res) => {
+  routeBoth('/templates/delete', async (req, res) => {
     if (req.method !== 'POST') return writeJson(res, 405, { error: 'method' })
     const body = await readJson(req)
     if (!body) return writeJson(res, 400, { error: 'bad-body' })
@@ -1377,7 +1383,7 @@ export function registerUiRoutes({
   // hubToken 只出现在出站 query，不得进入响应、日志或前端。
   // 与下面的 /relay-enroll 并存：那条读 config.relayUrl 顶层键并回 relayUrl，
   // 这条读 config.relay.url 且响应不含任何配置值。
-  route(`${UI_API_PREFIX}/mint-enroll`, async (req, res) => {
+  routeBoth('/mint-enroll', async (req, res) => {
     if (req.method !== 'POST') return writeJson(res, 405, { error: 'method', message: '只接受 POST' })
     // 与 /relay-enroll 同一道回环：铸造会把 hubToken 打到中继，只许本机面板调用。
     const ra = String(req.socket?.remoteAddress ?? '')
@@ -1429,7 +1435,7 @@ export function registerUiRoutes({
   // 把 relayUrl 的 ws(s):// 换成 http(s):// 后，POST 到 relay 服务的
   // /api/relay/token?token=<hubToken>，拿回一次性 enrollToken（15 分钟有效）。
   // 只在本机回环才返回 relayToken 配置（安全策略与 pair-info 相同）。
-  route(`${UI_API_PREFIX}/relay-enroll`, async (req, res) => {
+  routeBoth('/relay-enroll', async (req, res) => {
     if (req.method !== 'POST') return writeJson(res, 405, { error: 'method' })
     const ra = String(req.socket?.remoteAddress ?? '')
     const loopback = ra === '127.0.0.1' || ra === '::1' || ra === '::ffff:127.0.0.1'
@@ -1474,7 +1480,7 @@ export function registerUiRoutes({
   // ── SSH 一键上桥 ──────────────────────────────────────────────────
 
   // GET /ssh-hosts：返回脱敏主机列表，绝不返回 password/keyPath 内容
-  route(`${UI_API_PREFIX}/ssh-hosts`, (req, res) => {
+  routeBoth('/ssh-hosts', (req, res) => {
     if (req.method !== 'GET') return writeJson(res, 405, { error: 'method' })
     const result = readSshHosts()
     // ⚠ 安全审计：响应体绝不含 password 或私钥内容（脱敏在 readSshHosts 里做）
@@ -1482,7 +1488,7 @@ export function registerUiRoutes({
   })
 
   // POST /ssh-probe {alias}：只读探测，回 os/node/npm/dsh/dshHome/missing
-  route(`${UI_API_PREFIX}/ssh-probe`, async (req, res) => {
+  routeBoth('/ssh-probe', async (req, res) => {
     if (req.method !== 'POST') return writeJson(res, 405, { error: 'method' })
     const body = await readJson(req).catch(() => ({}))
     const alias = typeof body.alias === 'string' ? body.alias.trim() : ''
@@ -1492,7 +1498,7 @@ export function registerUiRoutes({
   })
 
   // POST /ssh-deploy {alias,nodeId?,roots?}：全流程部署，返回 jobId
-  route(`${UI_API_PREFIX}/ssh-deploy`, async (req, res) => {
+  routeBoth('/ssh-deploy', async (req, res) => {
     if (req.method === 'GET') {
       // GET /ssh-deploy?id=xxx：查询进度
       const u = new URL(req.url, 'http://localhost')
@@ -1516,7 +1522,7 @@ export function registerUiRoutes({
 
   // POST /ssh-deploy/install-runtime {alias, confirm:'yes'}：空机装 Node + DSH
   // ⚠ 没有 confirm:'yes' 必须 400 拒绝（防止误操作）
-  route(`${UI_API_PREFIX}/ssh-deploy/install-runtime`, async (req, res) => {
+  routeBoth('/ssh-deploy/install-runtime', async (req, res) => {
     if (req.method !== 'POST') return writeJson(res, 405, { error: 'method' })
     const body = await readJson(req).catch(() => ({}))
     const alias = typeof body.alias === 'string' ? body.alias.trim() : ''
@@ -1535,7 +1541,7 @@ export function registerUiRoutes({
 
   // POST /relay-autoconfig {relayUrl}：服务端读取已有 hubToken 并写入中继配置
   // 客户端不传 token，服务端直接读 config.relay.token，避免 token 经客户端传输。
-  route(`${UI_API_PREFIX}/relay-autoconfig`, async (req, res) => {
+  routeBoth('/relay-autoconfig', async (req, res) => {
     if (req.method !== 'POST') return writeJson(res, 405, { error: 'method' })
     const body = await readJson(req).catch(() => ({}))
     const relayUrl = typeof body.relayUrl === 'string' ? body.relayUrl.trim() : ''

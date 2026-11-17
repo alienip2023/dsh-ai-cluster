@@ -1,2 +1,3 @@
-/** http/prefix：面板 API 前缀（旧值 '/api/remote-agent/ui'）。 */
+/** http/prefix：面板 API 前缀。 */
 export const UI_API_PREFIX = '/api/ai-cluster/ui'
+export const LEGACY_UI_API_PREFIX = '/api/remote-agent/ui'
