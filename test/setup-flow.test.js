@@ -32,7 +32,10 @@ const ROOT = path.resolve(HERE, '..')
 const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8')
 const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
 
-const indexSrc = read('lib/index.js')
+// act-1 made lib/index.js a generated shim: the schema, role resolution and setup
+// registration live in src/plugin/index.js. The shim's re-exports are covered by
+// test/phase1/entry-shim.test.js.
+const indexSrc = read('src/plugin/index.js')
 const setupRoutes = read('lib/setup-routes.js')
 const client = read('lib/client.js')
 const patch = read('cordis.patch.yml')
