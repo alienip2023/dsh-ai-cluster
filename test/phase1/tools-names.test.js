@@ -110,12 +110,25 @@ test('exactly 23 cluster_* tools, none extra', () => {
   assert.equal(clusterNames.length, 23)
 })
 
-test('no remote_* name is registered any more', () => {
-  assert.deepEqual([...defs.keys()].filter((n) => n.startsWith('remote_')), [])
+test('every remote_* tool is an alias of the same cluster_* tool', () => {
+  const remoteNames = [...defs.keys()].filter((n) => n.startsWith('remote_'))
+  assert.equal(remoteNames.length, 23)
+  for (const remote of remoteNames) {
+    const canonical = 'cluster_' + remote.slice('remote_'.length)
+    const a = defs.get(canonical)
+    const b = defs.get(remote)
+    assert.ok(a, `${canonical} must exist for ${remote}`)
+    assert.equal(b.execute, a.execute, `${remote} must reuse ${canonical}'s handler`)
+    assert.deepEqual(b.parameters, a.parameters, `${remote} must keep ${canonical}'s schema`)
+  }
 })
 
-// 偏差记录：旧 registerRemoteTools 实际注册 24 个，多出的 node_jobs 不在简报的 23 个里。
-// 它原样保留（job-frame.test.js 依赖），这里钉住"唯一的非 cluster_ 工具"。
-test('node_jobs is the only non-cluster_ tool (kept unchanged)', () => {
-  assert.deepEqual([...defs.keys()].filter((n) => !n.startsWith('cluster_')), ['node_jobs'])
+test('the non-cluster_ names are the 23 aliases plus node_jobs', () => {
+  const remoteNames = [...defs.keys()].filter((n) => n.startsWith('remote_'))
+  assert.deepEqual(
+    [...defs.keys()].filter((n) => !n.startsWith('cluster_')).sort(),
+    [...remoteNames, 'node_jobs'].sort(),
+  )
+  // A Map cannot hold duplicate keys; single registration is covered by test/phase1/tool-alias-register.test.js.
+  assert.equal(defs.has('node_jobs'), true)
 })
