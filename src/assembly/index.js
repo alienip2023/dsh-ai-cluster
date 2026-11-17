@@ -1,0 +1,5 @@
+export * from './hub.js'
+export * from './worker.js'
+export { exposeRole, ROLE_SERVICE } from '../caps/index.js'
+export { registerSetupRoutes } from '../../lib/setup-routes.js'
+export { mergeInstanceConfig } from '../../lib/instance-config.js'

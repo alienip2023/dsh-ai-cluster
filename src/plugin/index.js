@@ -1,0 +1,306 @@
+/**
+ * Plugin entry the host calls: apply, Config, dispose path.
+ * Absorbs lib/index.js. Deliberately no `export default` and no `export const inject`
+ * (see lib/index.js header: loader unwrapExports / worker branch must not be
+ * dragged down by hub inject).
+ */
+import z from '@deepseek-ai/schemastery'
+import { applyHub, applyWorkerBranch, exposeRole, registerSetupRoutes, mergeInstanceConfig } from '../assembly/index.js'
+import { newNodeToken, normalizeConfig, NODE_UPGRADE_PATH, HEALTH_PATH } from '../assembly/hub.js'
+import { generationKey, disposePrevious, setGeneration, clearGeneration } from './generations.js'
+
+/** 角色取值。 */
+export const ROLE = Object.freeze({ HUB: 'hub', WORKER: 'worker', BOTH: 'both', AUTO: 'auto' })
+
+/**
+ * 解析本机角色。
+ *
+ * 为什么需要归一化 + 明确告警（t3 审计查出的真实风险）：
+ * 原实现只做精确匹配，其余一律 `return ROLE.HUB`。于是 `role: 'Worker'`（大小写）、
+ * `'hub '`（尾空格）、`42`、`true` 全都**静默**变成 hub —— 而副机 profile 写错一个
+ * 字母的后果很严重：那台机器会以 **hub 身份**启动，注册 `/api/remote-agent/node`
+ * 直连端点与 healthz，而 hub 的 `nodeToken` 默认为空串 → **该端点不校验任何凭证**。
+ * 用户以为自己配的是"副机"，实际开了个无鉴权的直连入口。
+ *
+ * 修法：先归一化（trim + 小写）以容忍常见笔误，再对**无法识别**的值返回 hub 但
+ * 附带 `invalid` 标记，由 apply() 记 warn —— 配置写错必须有反馈，不能静默。
+ *
+ * ── 2026-10-15 二次修订：未配置 ≠ hub ──────────────────────────────────────
+ *
+ * 原实现把 `''` / `undefined` 也当成 hub。这导致**首次安装的体验是错的**：
+ *
+ *   · 副机装完 → `role` 走默认值 hub → 面板认为自己是主机 → 全 404，
+ *     而且**不会显示任何引导**（它以为自己配好了）
+ *   · 用户必须去手工改 YAML 才能变成 worker —— 而改的时候还要同时改
+ *     `inject`（hub 要 webServer/tools/systemPrompt，worker 不该要），
+ *     两个字段联动，极易配错
+ *
+ * 改成"**未配置就是未配置**"：
+ *   · `''` / `undefined` / `null` → `{ role: '', unconfigured: true }`
+ *   · apply() 见到 unconfigured **什么都不注册**（不 hub、不 worker）
+ *   · 面板两个端点都失败 → 显示引导 UI，让用户选
+ *
+ * 顺带这比原实现**更安全**：原实现下"配置写错"会静默变成 hub（注册一个
+ * nodeToken 为空、不校验凭证的直连端点）；现在写错只是"未配置"，不开任何入口。
+ *
+ * @returns {{role:string, invalid?:string, unconfigured?:true}}
+ *   role 为 hub/worker/both，或 `''`（未配置）；invalid 为原始非法值
+ */
+export function resolveRoleDetail(config) {
+  const raw = config && typeof config === 'object' ? config.role : undefined
+  if (raw === undefined || raw === null || raw === '') return { role: '', unconfigured: true }
+  if (typeof raw === 'string') {
+    const norm = raw.trim().toLowerCase()
+    if (norm === ROLE.HUB || norm === ROLE.WORKER || norm === ROLE.BOTH) return { role: norm }
+    // ── auto：按配置推断（2026-10-17，"开箱即用"的落点）──────────────
+    //
+    // 判据只有一条，但它是**副机与主机最本质的区别**：
+    //   · 配了 `hubUrl` = 这台机器要去连别人 = **副机**
+    //   · 没配 hubUrl = 这台机器不需要连别人 = **主机**
+    //
+    // 为什么这条判据可靠：
+    //   · hubUrl 是副机独有的字段，hub 侧根本不读它（hub 是监听方）
+    //   · 用户配 hubUrl 的唯一目的就是"连主机"
+    //   · 配对码展开后必然产出 hubUrl（见 lib/pairing.js），所以"贴了配对码"
+    //     就等于"有 hubUrl"
+    //
+    // 这样主机装完零操作（默认 hub），副机贴完配对码也零操作（自动 worker）。
+    // 比"两台都要点一下"更接近开箱即用，又不像"写死 hub"那样给副机开一个
+    // 不该开的无鉴权端点。
+    if (norm === 'auto' || norm === ROLE.AUTO) {
+      const hubUrl = typeof config.hubUrl === 'string' ? config.hubUrl.trim() : ''
+      // ra18-3: hub 显式填了 hubUrl（自己的对外地址）时，不走 hubUrl → worker 推断
+      // 同时有 relayUrl 或 relay.url 的是主机（hub），不是副机
+      const hasRelay = (typeof config.relay?.url === 'string' && config.relay.url !== '')
+        || (typeof config.relayUrl === 'string' && config.relayUrl !== '')
+      if (hubUrl !== '' && !hasRelay) return { role: ROLE.WORKER, inferred: 'hubUrl' }
+      return { role: ROLE.HUB, inferred: 'no-hubUrl' }
+    }
+  }
+  // 无法识别：**不再回退 hub**（那会静默开一个无鉴权入口）。
+  // 当成"未配置"，由面板引导用户重新选。
+  return { role: '', invalid: raw, unconfigured: true }
+}
+
+
+/** 兼容旧签名：只返回角色字符串。 */
+export function resolveRole(config) {
+  return resolveRoleDetail(config).role
+}
+
+function loggerOf(ctx) {
+  return (level, msg, extra) => {
+    try {
+      const l = ctx?.logger
+      if (l && typeof l[level] === 'function') l[level](`[ai-cluster] ${msg}`, extra)
+      else if (l && typeof l.info === 'function') l.info(`[ai-cluster] ${msg}`, extra)
+      else if (level === 'warn' || level === 'error') console.warn(`[ai-cluster] ${msg}`, extra ?? '')
+    } catch {
+      /* 日志失败不影响主流程 */
+    }
+  }
+}
+
+/**
+ * @param {object} ctx Cordis context
+ * @param {object} [config] row config
+ */
+export function apply(ctx, config = {}) {
+  // Instance config overrides loader config (DSH rewrites cordis.patch.yml).
+  const merged = mergeInstanceConfig(config)
+  if (merged.source) config = merged.config
+
+  const { role, invalid, unconfigured } = resolveRoleDetail(config)
+  const log = loggerOf(ctx)
+
+  if (Array.isArray(merged.shadowed) && merged.shadowed.length > 0) {
+    log('info', 'instance.json overrides loader config (patch edits ignored for these keys)', {
+      keys: merged.shadowed,
+      fix: '要让 patch 生效，请删掉 instance.json 里对应的键（或用面板改）',
+    })
+  }
+  if (invalid !== undefined) {
+    log('warn', 'unrecognized role: treating as unconfigured (not falling back to hub)', {
+      got: invalid,
+      expected: [ROLE.HUB, ROLE.WORKER, ROLE.BOTH],
+    })
+  }
+
+  // Re-entrant: the host never calls our disposer on reload, so dispose the
+  // previous generation ourselves before registering the next one.
+  const genKey = generationKey(ctx)
+  disposePrevious(genKey, log)
+
+  const handles = { role, hub: undefined, worker: undefined, unconfigured: unconfigured === true }
+  const disposeRole = exposeRole(ctx, handles.role)
+  if (handles.unconfigured) log('info', 'deployment role not configured; surfacing worker to other plugins')
+
+  let released = false
+  const dispose = () => {
+    if (released) return
+    released = true
+    clearGeneration(genKey, dispose)
+    try { handles.hub?.disposeAll?.() } catch (err) {
+      log('warn', 'hub dispose failed', { error: String(err?.message ?? err) })
+    }
+    if (Array.isArray(handles.setup)) {
+      for (const d of handles.setup) {
+        try { if (typeof d === 'function') d() } catch { /* already removed */ }
+      }
+    }
+    try { if (typeof handles.worker === 'function') handles.worker() } catch { /* already removed */ }
+    try { if (typeof disposeRole === 'function') disposeRole() } catch { /* already removed */ }
+  }
+  setGeneration(genKey, dispose)
+  handles.dispose = dispose
+
+  // Setup routes are always registered (escape hatch for changing role).
+  handles.setup = registerSetupRoutes(ctx, config, log)
+
+  if (unconfigured === true) {
+    log('info', 'ai-cluster is not configured yet: only setup routes are active')
+    return handles
+  }
+
+  // Hub services are made visible by the declarative inject on the loader row.
+  if (role === ROLE.HUB || role === ROLE.BOTH) {
+    handles.hub = applyHub(ctx, config)
+  }
+
+  if (role === ROLE.WORKER || role === ROLE.BOTH) {
+    void applyWorkerBranch(ctx, config, log).then((h) => {
+      // Disposed while the dynamic import was in flight: detach immediately.
+      if (released) {
+        try { if (typeof h === 'function') h() } catch { /* already removed */ }
+        return
+      }
+      handles.worker = h
+    })
+  }
+
+  return handles
+}
+
+export const Config = z.object({
+  role: z
+    // ⚠ 默认 `'auto'`：**按配置推断角色**，而不是写死一个（2026-10-17）。
+    //
+    // ── 为什么不是写死 hub ──────────────────────────────────────────────
+    //
+    // v0.7.0 之前默认 hub，问题是：**副机装完会以 hub 身份启动** —— 注册一个
+    // nodeToken 为空、不校验凭证的直连端点。这在安全上是实打实的漏洞面。
+    //
+    // ── 为什么不是写死 ''（未配置）──────────────────────────────────────
+    //
+    // v0.7.0~0.8.1 默认 `''`，问题是：**两台机器都要操作一次**，而"开箱即用"
+    // 的目标是主机装完零操作。而且升级时包内默认容易把 profile 里没显式写的
+    // role 冲成空（实测踩过）。
+    //
+    // ── auto 的判据（见 resolveRoleDetail）─────────────────────────────
+    //
+    //   1. 用户显式写了 hub/worker/both  → 用它（最高优先，永不猜错）
+    //   2. 配了 `hubUrl`（副机的特征）    → worker
+    //   3. 都没配                        → hub（默认主机）
+    //
+    // 这样：
+    //   · 主机装完 → 没 hubUrl → 自动 hub → **零操作** ✅
+    //   · 副机填完配对码 → 有 hubUrl → 自动 worker → **零操作** ✅
+    //   · 副机还没填 → 暂时 hub，但面板立刻显示"填配对码成为副机"
+    //
+    // 空字符串仍是**合法值**，表示"用户主动清空了，需要引导"。
+    .union([
+      z.const('hub'),
+      z.const('worker'),
+      z.const('both'),
+      z.const('auto'),
+      z.const(''),
+    ])
+    .default('auto')
+    .description(
+      '本机角色：auto=自动推断（默认：配了 hubUrl 就是副机，否则是主机）；'
+      + 'hub=主机（派活方）；worker=副机（干活方）；both=同一台机器自测；'
+      + '留空=未配置（打开 Web 面板会显示引导，让你选）',
+    ),
+
+  // ── 副机（worker）专用 ────────────────────────────────────────
+  nodeId: z
+    .string()
+    .default('')
+    .description('副机唯一标识（留空则取主机名）。只能含字母数字 . _ -，以字母或数字开头。'),
+  transportMode: z
+    .union([z.const('direct'), z.const('relay')])
+    .default('relay')
+    .description('direct=副机主动连主机（主机地址需可达）；relay=经中继 VPS 会合（双方都在 NAT 后时用）。'),
+  hubUrl: z
+    .string()
+    .default('')
+    .description('direct 模式：主机地址，形如 ws://主机IP:19387/api/remote-agent/node。'),
+  connectivityProbe: z.boolean().default(true)
+    .description('只读采集隧道配置、日志与 TCP 可达性并上报；关闭后仍可实时自检。'),
+  connectivityIntervalMs: z.number().default(60_000)
+    .description('连通性上报间隔（毫秒），最小 15000。'),
+  connectivityInitialDelayMs: z.number().default(5000)
+    .description('上线后首次连通性采样的延迟（毫秒），范围 0–5000。'),
+  tunnelConfigPaths: z.array(z.string()).default(['.runtime/frpc/frpc.toml'])
+    .description('只读 frpc 配置路径；相对路径以 DSH_HOME 为基准。'),
+  probeHosts: z.array(z.string()).default([])
+    .description('除主控外额外探测的 host:port（IPv6 使用 [host]:port）。'),
+  probeTimeoutMs: z.number().default(800)
+    .description('单个 TCP 探测的截止时间（毫秒），含 DNS 等待。'),
+  sakuraLogTailLines: z.number().default(200)
+    .description('最新樱花日志采样的末尾行数；仅读取，不启动或修改隧道。'),
+  peerDirect: z.boolean().default(false)
+    .description('开启 Bot 对话对等直连；失败时回落主机路径。'),
+  peerListenPort: z.number().default(19388)
+    .description('Bot 对等直连监听端口；0 = 自动分配。'),
+  peerListenHost: z.string().default('')
+    .description('Bot 对等直连绑定的具体本机 IP；留空自动选路。'),
+  relayUrl: z
+    .string()
+      .default('')
+      .description('relay 模式：中继地址，形如 ws://中继IP:8890/relay。'),
+    roots: z.array(z.string())
+      .default([])
+      .description('副机允许任务操作的工作区根目录（绝对路径，必须真实存在）。留空退回保守默认。'),
+    stateDir: z.string()
+      .default('')
+      .description('副机任务状态落盘目录（留空用 ~/.dsh-remote-agent）。任务状态真身在这里。'),
+
+    // ── 主机（hub）专用 ──────────────────────────────────────────
+    relay: z.object({
+      url: z.string().default('').description('中继地址，留空表示不用中继。'),
+      token: z.string().default('').description('中继的 hub token（rt_ 开头那一半）。'),
+    })
+      .default({ url: '', token: '' })
+      .description('主机经中继接入时的地址与凭证。'),
+    nodeToken: z.string()
+      .default('')
+      .description('direct 模式下校验副机的共享口令。留空=不校验（仅限可信内网；公网暴露时必须填）。'),
+    uiPullRoot: z.string()
+      .default('')
+      .description('Web 面板拉取产物时唯一允许落地的目录（绝对路径）。留空则面板拉取按钮禁用。'),
+
+    // ── 独立监听（2026-10-18 引入，2026-10-20 补进 schema）───────────────
+    //
+    // ⚠ 这两个字段 0.9.3 就已在用，但**没有在这里声明** —— 靠 schemastery 的
+    // passthrough 才勉强能读到。后果：插件配置页里根本没有这两项（无表单）、
+    // 没有类型校验（`listenPort: "19387"` 会静默回弹默认值）、也无法在 UI 上改。
+    // 现在正式声明：能配、能校验、能在面板/插件页里看到。
+    listenHost: z.string()
+      .default('')
+      .description('独立监听绑定的具体本机 IP（留空=自动选：Tailscale > 私网 > 回环）。'
+        + '不能填 0.0.0.0 —— 通配地址会把服务暴露到所有网卡，且新版 DSH 同规则拒绝。'),
+    // 取值范围由 normalizeConfig 归一（0 <= port < 65536），这里只声明类型与默认值。
+    listenPort: z.number()
+      .default(19387)
+      .description('独立监听端口（副机从这里拨入）。0 = 关闭独立监听，只走 DSH 自己的 Web 服务通道。'),
+
+    uiEnabled: z.boolean()
+      .default(true)
+      .description('是否注册 Web 面板的控制路由。'),
+    sessionGate: z.boolean()
+      .default(false)
+      .description('开启后每个会话须先输入 /remote-agent on，才能调用 remote_* 工具；重启或新会话默认关闭。'),
+})
+
+export { applyHub, newNodeToken, normalizeConfig, NODE_UPGRADE_PATH, HEALTH_PATH }
