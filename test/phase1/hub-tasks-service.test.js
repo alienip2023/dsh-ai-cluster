@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { dualProvide } from '../../src/compat/dual-provide.js'
 import { TASKS_SERVICE, createHubTasksService } from '../../src/task-book/tasks.js'
 
 function makeRegistry() {
@@ -154,7 +155,7 @@ const hubSource = readFileSync(new URL('../../lib/hub/index.js', import.meta.url
 const wiringStart = hubSource.indexOf('  const tasks = createHubTasksService(')
 const wiringEnd = hubSource.indexOf('\n  // M2：config-sync', wiringStart)
 assert.ok(wiringStart >= 0 && wiringEnd > wiringStart, 'hub tasks registration block must exist')
-const wireTasks = new Function('ctx', 'registry', 'log', 'TASKS_SERVICE', 'createHubTasksService',
+const wireTasks = new Function('ctx', 'registry', 'log', 'TASKS_SERVICE', 'createHubTasksService', 'dualProvide',
   `${hubSource.slice(wiringStart, wiringEnd)}\nreturn tasks`)
 
 test('hub wiring provides remote-agent:tasks so cordis get can read it', () => {
@@ -162,23 +163,27 @@ test('hub wiring provides remote-agent:tasks so cordis get can read it', () => {
   const { registry } = makeRegistry()
   const logs = []
   assert.equal(TASKS_SERVICE, 'ai-cluster:tasks')
-  const service = wireTasks(ctx, registry, (...args) => logs.push(args), TASKS_SERVICE, createHubTasksService)
+  const service = wireTasks(ctx, registry, (...args) => logs.push(args), 'remote-agent:tasks', createHubTasksService, dualProvide)
   assert.equal(ctx.get('ai-cluster:tasks'), service)
+  assert.equal(ctx.get('remote-agent:tasks'), service)
   assert.equal(service.getTask('newer').status, 'completed')
-  assert.deepEqual(ctx.calls, [['provide', TASKS_SERVICE]])
+  assert.deepEqual(ctx.calls, [['provide', 'ai-cluster:tasks'], ['provide', 'remote-agent:tasks']])
   assert.deepEqual(logs, [])
 })
 
 test('hub wiring overwrites an already provided tasks service with set', () => {
   const ctx = makeCtx()
   const previous = { stale: true }
-  ctx.provide(TASKS_SERVICE, previous)
+  ctx.provide('ai-cluster:tasks', previous)
   const logs = []
   const { registry } = makeRegistry()
-  const service = wireTasks(ctx, registry, (...args) => logs.push(args), TASKS_SERVICE, createHubTasksService)
-  assert.equal(ctx.get(TASKS_SERVICE), service)
+  const service = wireTasks(ctx, registry, (...args) => logs.push(args), 'remote-agent:tasks', createHubTasksService, dualProvide)
+  assert.equal(ctx.get('ai-cluster:tasks'), service)
+  assert.equal(ctx.get('remote-agent:tasks'), service)
   assert.notEqual(service, previous)
-  assert.deepEqual(ctx.calls, [['provide', TASKS_SERVICE], ['set', TASKS_SERVICE]])
+  assert.deepEqual(ctx.calls, [
+    ['provide', 'ai-cluster:tasks'], ['set', 'ai-cluster:tasks'], ['provide', 'remote-agent:tasks'],
+  ])
   assert.deepEqual(logs, [])
 })
 
@@ -187,6 +192,8 @@ test('hub wiring catches registration failure and logs the service name', () => 
   ctx.provide = () => { throw new Error('provide failed') }
   const { registry } = makeRegistry()
   const logs = []
-  assert.doesNotThrow(() => wireTasks(ctx, registry, (...args) => logs.push(args), TASKS_SERVICE, createHubTasksService))
+  assert.doesNotThrow(() => wireTasks(ctx, registry, (...args) => logs.push(args), 'remote-agent:tasks', createHubTasksService, dualProvide))
   assert.deepEqual(logs, [['warn', 'remote-agent:tasks provide failed', { error: 'provide failed' }]])
+  assert.equal(ctx.get('ai-cluster:tasks'), undefined)
+  assert.equal(ctx.get('remote-agent:tasks'), undefined)
 })
