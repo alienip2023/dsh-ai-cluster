@@ -477,6 +477,10 @@ export function registerUiRoutes({
     }
   }
 
+  function unavailable(res, screen, reason) {
+    return writeJson(res, 200, { ok: false, code: 'not-available', screen, reason })
+  }
+
   // UI 不携带节点内部资源对象或工作区列表；共享 nodeView 的旧契约保持独立。
   function uiNodeView(raw) {
     const n = nodeView(raw)
@@ -501,6 +505,21 @@ export function registerUiRoutes({
       models: n.models,
     }
   }
+
+  routeBoth('/bots', (req, res) => {
+    if (req.method !== 'GET') return writeJson(res, 405, { error: 'method' })
+    return unavailable(res, 'S1', 'roster-store-not-built')
+  })
+
+  routeBoth('/models', (req, res) => {
+    if (req.method !== 'GET') return writeJson(res, 405, { error: 'method' })
+    return unavailable(res, 'S3', 'ack-store-not-built')
+  })
+
+  routeBoth('/memory', (req, res) => {
+    if (req.method !== 'GET') return writeJson(res, 405, { error: 'method' })
+    return unavailable(res, 'S4', 'memory-store-not-built')
+  })
 
   routeBoth('/node-status', (req, res) => {
     const now = Date.now()
