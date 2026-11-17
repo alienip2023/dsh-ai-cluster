@@ -1,4 +1,4 @@
-# dsh-remote-agent
+# AI 大一统
 
 [![CI](https://github.com/zbzbhs/dsh-remote-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/zbzbhs/dsh-remote-agent/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -7,7 +7,12 @@
 
 **简体中文** | [English](README.en.md)
 
-把另一台电脑变成你 DSH 的**远程 Agent 同事**。
+> **当前状态：阶段 1a，功能等同 dsh-remote-agent 0.10.1-fork.93，身份已切换。**
+> 包名 `dsh-ai-unified`，版本 0.1.0；内部服务名 `remote-agent:*`、工具名 `remote_*`、端口 19387 均保持兼容，见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+
+**AI 大一统**：把几台电脑连成一张 AI 网络，主控派任务、副机执行、统一面板、模型与记忆统一配置。
+
+当前阶段的能力：把另一台电脑变成你 DSH 的**远程 Agent 同事**。
 
 副机拥有自己的 DSH 与独立 Agent 循环，任务在它本地持久运行；主电脑只拿到
 **handoff 结果卡**与**产物清单**，成品要显式拉取才过河。

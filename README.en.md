@@ -1,4 +1,4 @@
-# dsh-remote-agent
+# AI Unified
 
 [![CI](https://github.com/zbzbhs/dsh-remote-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/zbzbhs/dsh-remote-agent/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -7,7 +7,12 @@
 
 [简体中文](README.md) | **English**
 
-Turn another computer into a **remote agent co-worker** for your DSH.
+> **Current status: stage 1a — functionally identical to dsh-remote-agent 0.10.1-fork.93; identity switched.**
+> Package `dsh-ai-unified` 0.1.0. Internal service names (`remote-agent:*`), tool names (`remote_*`) and port 19387 are unchanged; see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (Chinese).
+
+**AI Unified** connects several computers into one AI network: the main machine dispatches tasks, worker machines execute, with one panel and unified model/memory configuration.
+
+At this stage it turns another computer into a **remote agent co-worker** for your DSH.
 
 The worker machine runs its own DSH with an independent agent loop — tasks keep
 running locally on it. Your main machine only receives the **handoff result

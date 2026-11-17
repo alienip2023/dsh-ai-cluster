@@ -1,6 +1,9 @@
-# dsh-remote-agent bundle patch（package.json 的 dsh.bundle.patch 指向本文件）。
+# dsh-ai-unified bundle patch（package.json 的 dsh.bundle.patch 指向本文件）。
+# 包名已由 dsh-remote-agent 改为 dsh-ai-unified（阶段 1a）；下面的插件行 id 仍是
+# `remote-agent`——故意不改：已装 profile 用这个 id 覆盖配置，且 ds-bot 依赖 remote-agent:* 服务名。
+# 见 docs/ARCHITECTURE.md「为什么内部 id 暂不重命名」。
 #
-# 作用：让 `dsh plugin add dsh-remote-agent` / plugin_manager 的 install_bundle
+# 作用：让 `dsh plugin add dsh-ai-unified` / plugin_manager 的 install_bundle
 # 能把插件行插入 loader。没有这个文件，loader 读不到 patch，插件行永不插入，
 # remote_* 工具永不注册 —— 这是 v0.1 的一个真实 blocker（由 t5 独立验证发现）。
 #

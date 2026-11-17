@@ -1,17 +1,17 @@
 {
-  "name": "dsh-remote-agent",
-  "version": "0.10.1-fork.93",
+  "name": "dsh-ai-unified",
+  "version": "0.1.0",
   "type": "module",
-  "description": "把另一台电脑变成你 DSH 的远程 Agent 同事：副机本地持久跑任务、独立 Agent 循环，只回传 handoff 摘要与产物清单，成品按需拉取。",
+  "description": "AI 大一统：把几台电脑连成一张 AI 网络，主控派任务、副机执行、统一面板、模型与记忆统一配置。",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/zbzbhs/dsh-remote-agent.git"
+    "url": "git+https://github.com/alienip2023/dsh-ai-unified.git"
   },
   "bugs": {
-    "url": "https://github.com/zbzbhs/dsh-remote-agent/issues"
+    "url": "https://github.com/alienip2023/dsh-ai-unified/issues"
   },
-  "homepage": "https://github.com/zbzbhs/dsh-remote-agent#readme",
+  "homepage": "https://github.com/alienip2023/dsh-ai-unified#readme",
   "keywords": [
     "dsh",
     "deepseek-harness",
@@ -26,7 +26,10 @@
     "zero-dependency",
     "handoff",
     "artifact",
-    "subagent-provider"
+    "subagent-provider",
+    "mesh",
+    "discovery",
+    "unified"
   ],
   "exports": {
     ".": "./lib/index.js",

@@ -224,13 +224,13 @@ test('D61-fatal-revoked: stops immediately, never retries', async (t) => {
 
 /* ───────── stderr lifecycle lines ───────── */
 
-const LINE = /^\[dsh-remote-agent\] node=[A-Za-z0-9._-]+ event=(online|offline|reconnecting|fatal)( [A-Za-z]+=[A-Za-z0-9._-]+)*$/
+const LINE = /^\[dsh-ai-unified\] node=[A-Za-z0-9._-]+ event=(online|offline|reconnecting|fatal)( [A-Za-z]+=[A-Za-z0-9._-]+)*$/
 
 test('C61-render: a line only carries the node id, the event, numbers and whitelisted short codes', () => {
-  assert.equal(renderLifecycleLine('n1', 'online'), '[dsh-remote-agent] node=n1 event=online')
-  assert.equal(renderLifecycleLine('n1', 'reconnecting', { attempt: 2, delayMs: 2043.7, reason: 'duplicate-node' }), '[dsh-remote-agent] node=n1 event=reconnecting attempt=2 delayMs=2044 reason=duplicate-node')
-  assert.equal(renderLifecycleLine('n1', 'offline', { reason: 'closed 1008: duplicate-node' }), '[dsh-remote-agent] node=n1 event=offline closeCode=1008')
-  assert.equal(renderLifecycleLine('n1', 'fatal', { code: 'duplicate-node', attempts: 10 }), '[dsh-remote-agent] node=n1 event=fatal code=duplicate-node attempts=10')
+  assert.equal(renderLifecycleLine('n1', 'online'), '[dsh-ai-unified] node=n1 event=online')
+  assert.equal(renderLifecycleLine('n1', 'reconnecting', { attempt: 2, delayMs: 2043.7, reason: 'duplicate-node' }), '[dsh-ai-unified] node=n1 event=reconnecting attempt=2 delayMs=2044 reason=duplicate-node')
+  assert.equal(renderLifecycleLine('n1', 'offline', { reason: 'closed 1008: duplicate-node' }), '[dsh-ai-unified] node=n1 event=offline closeCode=1008')
+  assert.equal(renderLifecycleLine('n1', 'fatal', { code: 'duplicate-node', attempts: 10 }), '[dsh-ai-unified] node=n1 event=fatal code=duplicate-node attempts=10')
   // hostile / sensitive content never gets through
   const evil = [
     renderLifecycleLine('n 1\nINJECT event=online', 'offline', { reason: 'closed 1008: token=sk-SECRET url=wss://h/relay?token=abc' }),
@@ -286,10 +286,10 @@ test('C61-offline: an established connection dropped by the relay writes offline
   srv.relay.nodes.get('node-off').conn.close(1001, 'relay secret restart note')
   await waitFor(() => lines.filter((l) => l.includes('event=online')).length === 2, 'back online', 12000)
   assert.deepEqual(lines.map((l) => l.replace(/delayMs=\d+/, 'delayMs=N')), [
-    '[dsh-remote-agent] node=node-off event=online',
-    '[dsh-remote-agent] node=node-off event=offline closeCode=1001',
-    '[dsh-remote-agent] node=node-off event=reconnecting attempt=1 delayMs=N',
-    '[dsh-remote-agent] node=node-off event=online',
+    '[dsh-ai-unified] node=node-off event=online',
+    '[dsh-ai-unified] node=node-off event=offline closeCode=1001',
+    '[dsh-ai-unified] node=node-off event=reconnecting attempt=1 delayMs=N',
+    '[dsh-ai-unified] node=node-off event=online',
   ])
 })
 
@@ -298,7 +298,7 @@ function captureStderr() {
   const orig = process.stderr.write.bind(process.stderr)
   process.stderr.write = (chunk, ...rest) => {
     const s = typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8')
-    for (const l of s.split('\n')) if (l.startsWith('[dsh-remote-agent]')) lines.push(l)
+    for (const l of s.split('\n')) if (l.startsWith('[dsh-ai-unified]')) lines.push(l)
     return typeof rest.at(-1) === 'function' ? (rest.at(-1)(), true) : true
   }
   return { lines, restore: () => { process.stderr.write = orig } }
