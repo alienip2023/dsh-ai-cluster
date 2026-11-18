@@ -188,7 +188,10 @@ export function applyPlugin(ctx, config, createController, assembleHub) {
     })
     const attachAdmission = registry => {
       admissionRegistry = registry
-      if (admission) registry.checkTaskAdmission = admission.checkTaskAdmission
+      if (admission) {
+        registry.checkTaskAdmission = admission.checkTaskAdmission
+        registry.onTaskTerminal = admission.onTaskTerminal
+      }
     }
     handles.hub = assembleHub(ctx, config, {
       registerUiRoutes(options) {
