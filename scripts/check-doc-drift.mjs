@@ -38,8 +38,8 @@ const check = (id, label, ok, detail) => results.push({ id, label, ok: Boolean(o
 
 check('identity.package', '包名为 dsh-ai-cluster',
   pkg.name === 'dsh-ai-cluster', 'package.json')
-check('identity.version', '版本为 0.2.0',
-  pkg.version === '0.2.0', 'package.json')
+check('identity.version', '版本为 0.3.0',
+  pkg.version === '0.3.0', 'package.json')
 check('identity.line', 'profiles 与包内活动插件行使用 remote-agent / dsh-ai-cluster',
   ['cordis.patch.yml', 'profiles/hub.cordis.yml', 'profiles/worker.cordis.yml'].every((file) =>
     /^\s*-\s+id:\s*remote-agent\s*\n\s+name:\s*dsh-ai-cluster\s*$/m.test(read(file))),

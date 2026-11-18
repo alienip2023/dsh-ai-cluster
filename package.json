@@ -1,6 +1,6 @@
 {
   "name": "dsh-ai-cluster",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "AI 集群控制 / AI Cluster Control：把几台电脑连成一张 AI 网络，主控派任务、副机执行、统一面板、模型与记忆统一配置。",
   "license": "MIT",

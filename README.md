@@ -8,7 +8,7 @@
 **简体中文** | [English](README.en.md)
 
 > **当前状态：阶段 1a，功能等同 dsh-remote-agent 0.10.1-fork.93，身份已切换。**
-> 包名 `dsh-ai-cluster`，版本 0.2.0；内部服务名 `remote-agent:*`、工具名 `remote_*`、端口 19387 均保持兼容，见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+> 包名 `dsh-ai-cluster`，版本 0.3.0；内部服务名 `remote-agent:*`、工具名 `remote_*`、端口 19387 均保持兼容，见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
 
 **AI 集群控制**：把几台电脑连成一张 AI 网络，主控派任务、副机执行、统一面板、模型与记忆统一配置。
 
