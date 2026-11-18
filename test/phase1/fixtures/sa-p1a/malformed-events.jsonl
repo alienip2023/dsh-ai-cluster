@@ -1,0 +1,8 @@
+not json at all
+[1,2,3]
+"str"
+{"kind":"mystery","seq":1}
+{"kind": "source-event", "seq": 1, "origin": {"source": "fake-a", "eventId": "e1", "thread": "t1", "identityRef": "fixture-person-1"}, "replyTo": {"kind": "fake", "conversationId": "conv-t1", "requesterRef": "req-fixture-person-1"}, "text": "synthetic note", "extra": 1}
+{"kind": "source-event", "seq": 1.5, "origin": {"source": "fake-a", "eventId": "e1", "thread": "t1", "identityRef": "fixture-person-1"}, "replyTo": {"kind": "fake", "conversationId": "conv-t1", "requesterRef": "req-fixture-person-1"}, "text": "synthetic note"}
+{"kind":"source-event","seq":1,"__proto__":{"x":1}}
+{"kind":"source-event","seq":1,"constructor":{"x":1}}
