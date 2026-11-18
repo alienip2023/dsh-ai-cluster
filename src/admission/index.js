@@ -38,7 +38,7 @@ export function createAdmission(config, {
   let disposed = false
 
   const reject = (entry, nodeId, reason) => {
-    audit('admission.reject', { entry, nodeId, reason })
+    try { audit('admission.reject', { entry, nodeId, reason }) } catch {}
     return { denied: true, hint: ADMISSION_REJECTED }
   }
 
@@ -58,8 +58,60 @@ export function createAdmission(config, {
     }
   }).catch(error => {
     unavailable = storeCode(error)
-    log('warn', 'Admission ledger unavailable', { reason: unavailable })
+    try { log('warn', 'Admission ledger unavailable', { reason: unavailable }) } catch {}
+  }).then(() => {
+    const report = recoveryReport()
+    if (report.unavailable) return
+    const { inFlight, openWithoutExecutor, ended, interrupted } = report
+    try {
+      log('info', `admission recovery: inFlight=${inFlight.length} (${report.status}), interrupted=${interrupted} (includes not-dispatched: manual intervention, redispatch only via a new event ID), ended=${ended}`)
+    } catch {}
+    // Keep the admission audit stream empty until there is ledger state to report.
+    if (inFlight.length || openWithoutExecutor.length || ended || interrupted) {
+      try { audit('admission.recovery', { inFlight: inFlight.length, openWithoutExecutor: openWithoutExecutor.length, ended, interrupted }) } catch {}
+    }
   })
+
+  function recoveryReport() {
+    if (!store) return { unavailable: disposed ? TicketErrorCode.CLOSED : unavailable }
+    try { return store.recoveryReport() } catch (error) { return { unavailable: storeCode(error) } }
+  }
+
+  async function notDispatched(ticketId, nodeId) {
+    try {
+      await store.markInterrupted(ticketId, 'not-dispatched')
+    } catch (error) {
+      const reason = storeCode(error)
+      try { audit('admission.interrupt_failed', { entry: 'tool', nodeId, reason }) } catch {}
+      try { log('warn', 'admission.interrupt_failed: ticket left for recovery', { nodeId, reason }) } catch {}
+      return
+    }
+    try { log('warn', 'ticket not dispatched; manual redispatch needs a new event ID', { nodeId }) } catch {}
+  }
+
+  async function onTaskTerminal({ taskId, status, reason }) {
+    if (!store || typeof taskId !== 'string' || !taskId.startsWith('t-tk_')) return
+    const ticketId = taskId.slice(2)
+    try {
+      const ticket = store.get(ticketId)
+      if (ticket?.state !== 'open' || ticket.executorRef?.ref !== taskId) return
+      if (status === 'interrupted') {
+        await store.markInterrupted(ticketId, 'interrupted')
+      } else if (status === 'rejected') {
+        if (reason === 'approval-timeout' || reason === 'hub-cancel') {
+          await store.markInterrupted(ticketId, reason)
+        } else if (reason === 'approval-rejected') {
+          await store.end(ticketId, { outcome: status, reason })
+        }
+      } else if (status === 'completed' || status === 'failed' || status === 'aborted') {
+        await store.end(ticketId, { outcome: status })
+      }
+    } catch (error) {
+      const fields = { taskId, status, reason: reason ?? storeCode(error) }
+      try { audit('admission.terminal_failed', fields) } catch {}
+      try { log('warn', 'admission.terminal_failed: ticket left for recovery', fields) } catch {}
+    }
+  }
 
   function dispose() {
     if (disposed) return
@@ -103,7 +155,10 @@ export function createAdmission(config, {
       const accepted = await store.accept({ ...binding, executorRef: { kind: 'cluster-task', ref: taskId } })
       if (accepted.denied) return deny(accepted.code)
       if (accepted.duplicate) return { taskId, duplicate: true }
-      if (disposed) return deny(TicketErrorCode.CLOSED)
+      if (disposed) {
+        await notDispatched(ticketId, nodeId)
+        return deny(TicketErrorCode.CLOSED)
+      }
       let marked = false
       return {
         taskId,
@@ -112,11 +167,7 @@ export function createAdmission(config, {
           marked = true
           marks.set(spec, { nodeId, taskId })
         },
-        async notDispatched() {
-          try { await store.markInterrupted(ticketId, 'not-dispatched') } catch (error) {
-            audit('admission.interrupt_failed', { entry: 'tool', nodeId, reason: storeCode(error) })
-          }
-        },
+        notDispatched: () => notDispatched(ticketId, nodeId),
       }
     } catch (error) {
       return deny(storeCode(error))
@@ -134,5 +185,5 @@ export function createAdmission(config, {
     throw new Error(ADMISSION_REJECTED)
   }
 
-  return { inScope, admit, reject, checkTaskAdmission, ready, dispose }
+  return { inScope, admit, reject, checkTaskAdmission, onTaskTerminal, recoveryReport, ready, dispose }
 }
