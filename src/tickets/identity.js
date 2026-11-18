@@ -1,0 +1,78 @@
+/** Ticket identity and input binding. */
+import crypto from 'node:crypto'
+
+export const TicketErrorCode = Object.freeze({
+  ID_COLLISION: 'TICKET_ID_COLLISION',
+  LEDGER_CORRUPT: 'TICKET_LEDGER_CORRUPT',
+  SNAPSHOT_MISMATCH: 'TICKET_SNAPSHOT_MISMATCH',
+  STORE_FAILED: 'TICKET_STORE_FAILED',
+  LOCKED: 'TICKET_LOCKED',
+  CLOSED: 'TICKET_CLOSED',
+  READ_ONLY: 'TICKET_READ_ONLY',
+  NOT_FOUND: 'TICKET_NOT_FOUND',
+})
+
+export const TicketDenyCode = Object.freeze({
+  ORIGIN_UNBOUND: 'origin_unbound',
+  IDENTITY_UNBOUND: 'identity_unbound',
+})
+
+export class TicketError extends Error {
+  constructor(code, message, details) {
+    super(message)
+    this.name = 'TicketError'
+    this.code = code
+    Object.assign(this, details)
+  }
+}
+
+export const isText = value => typeof value === 'string' && value.trim().length > 0
+export const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value)
+
+export function hasFields(value, fields) {
+  return isObject(value) && Object.keys(value).length === fields.length &&
+    fields.every(key => Object.hasOwn(value, key))
+}
+
+const isOriginKey = value => isText(value) && value.trim().length <= 512
+export const hasOriginKey = origin => isObject(origin) &&
+  [origin.source, origin.eventId, origin.thread].every(isOriginKey)
+
+export function workKeyOf(origin) {
+  if (!hasOriginKey(origin)) throw new TypeError('Invalid ticket origin key')
+  const { source, eventId, thread } = origin
+  return crypto.createHash('sha256').update(JSON.stringify(['tickets/v1', source, eventId, thread])).digest('hex')
+}
+
+export function ticketIdOf(workKey) {
+  if (typeof workKey !== 'string' || !/^[a-f0-9]{64}$/.test(workKey)) throw new TypeError('Invalid workKey')
+  return 'tk_' + workKey.slice(0, 24)
+}
+
+const replyFields = ['kind', 'conversationId', 'requesterRef']
+const executorFields = ['kind', 'ref']
+const bound = (value, fields) => isObject(value) && fields.every(key => isText(value[key]))
+export const validReply = value => hasFields(value, replyFields) && bound(value, replyFields)
+export const validExecutor = value => value === null ||
+  (hasFields(value, executorFields) && bound(value, executorFields))
+
+export function bindWork(work, sources) {
+  const origin = work?.origin
+  if (!hasOriginKey(origin) || !sources.has(origin.source) || !bound(work.replyTo, replyFields)) {
+    return { denied: true, code: TicketDenyCode.ORIGIN_UNBOUND }
+  }
+  if (!isText(origin.identityRef)) return { denied: true, code: TicketDenyCode.IDENTITY_UNBOUND }
+
+  const { source, eventId, thread, identityRef } = origin
+  const { kind, conversationId, requesterRef } = work.replyTo
+  const mandateRef = work.mandateRef ?? null
+  const executor = work.executorRef ?? null
+  if (mandateRef !== null && typeof mandateRef !== 'string') throw new TypeError('Invalid mandateRef')
+  if (executor !== null && !bound(executor, executorFields)) throw new TypeError('Invalid executorRef')
+  return {
+    origin: { source, eventId, thread, identityRef },
+    replyTo: { kind, conversationId, requesterRef },
+    mandateRef,
+    executorRef: executor && { kind: executor.kind, ref: executor.ref },
+  }
+}
