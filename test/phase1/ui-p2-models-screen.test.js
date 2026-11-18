@@ -65,7 +65,7 @@ test('null models is unreported; [] is reported-empty; invalid entries dropped; 
 })
 
 const effectStart = src.indexOf('React.useEffect(function () {\n        function store(')
-const effectSlice = effectStart >= 0 ? src.slice(effectStart, src.indexOf('}, [activeScreen])', effectStart)) : ''
+const effectSlice = effectStart >= 0 ? src.slice(effectStart, src.indexOf('}, [activeScreen, pollTick, tick])', effectStart)) : ''
 const modelsStart = src.indexOf("screen === 'models' ?")
 const renderSlice = modelsStart >= 0 ? src.slice(modelsStart, src.indexOf("h('p', null, '未接入')", modelsStart)) : ''
 

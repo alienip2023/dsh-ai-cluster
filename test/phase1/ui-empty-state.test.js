@@ -6,12 +6,12 @@ import { makeCtx } from './_plugin-ctx.js'
 
 const prefixes = [UI_API_PREFIX, LEGACY_UI_API_PREFIX]
 const screens = [
-  { name: 'bots', screen: 'S1', reason: 'roster-store-not-built' },
+  { name: 'bots', screen: 'S1', reason: null }, // p3-s1：不再是桩，由 ui-p3-s1-roster.test.js 覆盖数据契约
   { name: 'models', screen: 'S3', reason: 'ack-store-not-built' },
   { name: 'memory', screen: 'S4', reason: 'memory-store-not-built' },
 ]
 
-function fixture(t, registry = { list: () => [], listTasks: () => [] }) {
+function fixture(t, registry = { list: () => [], listTasks: () => [], rosterList: () => [] }) {
   const ctx = makeCtx()
   const routes = new Map()
   ctx.webServer = {
@@ -50,10 +50,25 @@ async function request(routes, pathname, { method = 'GET', headers = {}, query =
   return out
 }
 
+const stripAt = (r) => { const { at, ...rest } = r.body ?? {}; return { ...r, body: rest } }
+
 for (const { name, screen, reason } of screens) {
   const expected = { ok: false, code: 'not-available', screen, reason }
 
-  test(`${name} registers exact routes under both prefixes with identical refusals`, async (t) => {
+  if (reason === null) test(`${name} is served by the roster store: exact routes, empty store is ok:true,total:0`, async (t) => {
+    const { routes } = fixture(t)
+    for (const prefix of prefixes) {
+      const pathname = `${prefix}/${name}`
+      assert.equal(routes.get(pathname)?.kind, 'exact')
+      const r = await request(routes, pathname)
+      assert.equal(r.status, 200)
+      assert.equal(r.body.ok, true)
+      assert.equal(r.body.total, 0)
+      assert.deepEqual(r.body.nodes, [])
+    }
+  })
+
+  else test(`${name} registers exact routes under both prefixes with identical refusals`, async (t) => {
     const { routes } = fixture(t)
     const current = await request(routes, `${UI_API_PREFIX}/${name}`)
     assert.equal(current.status, 200)
@@ -89,13 +104,13 @@ for (const { name, screen, reason } of screens) {
     const { routes } = fixture(t)
     for (const prefix of prefixes) {
       const pathname = `${prefix}/${name}`
-      const current = await request(routes, pathname)
+      const current = stripAt(await request(routes, pathname))
       for (const input of [
         { query: '?scope=pc-b' },
         { headers: { 'content-type': 'application/json' }, body: { scope: 'pc-b', items: ['invented'] } },
         { query: '?scope=pc-b', headers: { 'content-type': 'application/json' }, body: { scope: 'all' } },
       ]) {
-        assert.deepEqual(await request(routes, pathname, input), current)
+        assert.deepEqual(stripAt(await request(routes, pathname, input)), current)
       }
     }
   })
@@ -112,7 +127,7 @@ test('empty-state refusals do not read the registry or config', async (t) => {
   Object.setPrototypeOf(config, new Proxy({}, {
     get(_target, key) { assert.fail(`empty-state routes must not read config.${String(key)}`) },
   }))
-  for (const { name, screen, reason } of screens) {
+  for (const { name, screen, reason } of screens.filter((x) => x.reason !== null)) {
     for (const prefix of prefixes) {
       const response = await request(routes, `${prefix}/${name}`)
       assert.equal(response.status, 200)

@@ -69,7 +69,7 @@ test('status 200 with {} is an unexpected shape', () => {
 })
 
 const effectStart = src.indexOf('React.useEffect(function () {\n        function store(')
-const effectSlice = effectStart >= 0 ? src.slice(effectStart, src.indexOf('}, [activeScreen])', effectStart)) : ''
+const effectSlice = effectStart >= 0 ? src.slice(effectStart, src.indexOf('}, [activeScreen, pollTick, tick])', effectStart)) : ''
 
 test('source: bots/memory branches fetch and render the exact empty sentences', () => {
   assert.ok(effectSlice, 'screen fetch effect must exist')
@@ -77,7 +77,8 @@ test('source: bots/memory branches fetch and render the exact empty sentences', 
   const memBranch = effectSlice.slice(effectSlice.indexOf("activeScreen === 'memory'"))
   assert.match(botsBranch, /apiGet\('\/bots'\)/)
   assert.match(memBranch, /apiGet\('\/memory'\)/)
-  assert.match(src, /名册未采集，本阶段不建存储/)
+  assert.doesNotMatch(src, /名册未采集，本阶段不建存储/, 'p3-s1: roster stub sentence is gone')
+  assert.match(src, /还没有机器人上报/)
   assert.match(src, /记忆存储未建，本阶段不读写/)
   assert.match(src, /读机器人列表失败/)
   assert.match(src, /读取中…/)
@@ -90,7 +91,6 @@ test('source: scope tab switching does not fetch; fetch is guarded once', () => 
   const tabSlice = src.slice(tabStart, src.indexOf('范围视图本阶段未接入', tabStart))
   assert.match(tabSlice, /setMemScope\(sc\)/)
   assert.doesNotMatch(tabSlice, /apiGet/)
-  assert.match(effectSlice, /screenFetched\.current\.bots\s*=\s*true/)
   assert.match(effectSlice, /screenFetched\.current\.memory\s*=\s*true/)
   assert.match(src, /范围视图本阶段未接入/)
 })
