@@ -45,8 +45,8 @@ const KEYS = {
   // diffs：提案 #21 变更 diff 视图（与 changed 平级的第三块内容）
   handoffView: ['taskId', 'nodeId', 'status', 'mode', 'runner', 'durationMs', 'startedAt', 'endedAt', 'exit', 'summary', 'summaryText', 'changed', 'diffs', 'artifacts', 'pullHint'].sort(),
   // approval：提案 #2 两阶段审批（'manual' | 'auto'）
-  taskView: ['taskId', 'nodeId', 'nodeOnline', 'status', 'mode', 'approval', 'goal', 'createdAt', 'updatedAt', 'startedAt', 'endedAt', 'durationMs', 'exit', 'error', 'summaryText', 'changedCount', 'changed', 'manifestCounts', 'progressTail', 'logTail'].sort(),
-  taskViewNoLogs: ['taskId', 'nodeId', 'nodeOnline', 'status', 'mode', 'approval', 'goal', 'createdAt', 'updatedAt', 'startedAt', 'endedAt', 'durationMs', 'exit', 'error', 'summaryText', 'changedCount', 'changed', 'manifestCounts'].sort(),
+  taskView: ['taskId', 'nodeId', 'nodeOnline', 'status', 'mode', 'approval', 'goal', 'createdAt', 'updatedAt', 'startedAt', 'endedAt', 'durationMs', 'exit', 'error', 'summaryText', 'changedCount', 'changed', 'manifestCounts', 'progressTail', 'logTail', 'cancelEvidence', 'stallHint'].sort(),
+  taskViewNoLogs: ['taskId', 'nodeId', 'nodeOnline', 'status', 'mode', 'approval', 'goal', 'createdAt', 'updatedAt', 'startedAt', 'endedAt', 'durationMs', 'exit', 'error', 'summaryText', 'changedCount', 'changed', 'manifestCounts', 'cancelEvidence', 'stallHint'].sort(),
   manifestView: ['counts', 'bytesFinal', 'final'].sort(),
   artifactsView: ['counts', 'bytesFinal', 'final', 'intermediateCount', 'note'].sort(),
   exitView: ['code', 'timedOut', 'aborted', 'runner', 'toolCalls'].sort(),

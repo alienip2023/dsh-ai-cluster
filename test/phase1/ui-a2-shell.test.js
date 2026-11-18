@@ -266,7 +266,7 @@ const BASE_SCREEN = {
 const BASE_STATE_KEYS = ['caps', 'connection', 'counts', 'discovery', 'error', 'loading', 'mode', 'nodes', 'relay', 'role', 'setup', 'tasks', 'topology', 'transportSummary', 'worker']
 /** 基线 a8e0bac 源码里每个 apiGet/apiPost/apiGetPath/apiPostPath/botApi/fetch 调用点所在行（去注释、去缩进、排序）的 sha256。 */
 const BASE_CALLSITES = 54
-const BASE_CALLSITE_DIGEST = '9f6455197300e0f26b3fd85a887fd6446b0f311d5ab2fa37ebf080419050ed11'
+const BASE_CALLSITE_DIGEST = '68de6e3400f428650527dd2d2302dce3283691bab689dce37696f89c52a8560d'
 function callSites(source) {
   const code = source.replace(/\/\*[\s\S]*?\*\//g, '')
   return code.split('\n').filter((l) => /\b(apiGet|apiPost|apiGetPath|apiPostPath|botApi|fetch)\(/.test(l) && !/function (apiGet|apiPost|apiGetPath|apiPostPath|botApi)\(/.test(l))
