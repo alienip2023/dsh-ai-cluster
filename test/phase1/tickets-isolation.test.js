@@ -46,7 +46,7 @@ test('T-ISO-1 src/tickets imports only node: built-ins and its own files, and on
   }
 })
 
-test('T-ISO-2 lib/client.js is byte-identical to the recorded hash', t => {
+test('T-ISO-2 clears uncommitted drift of lib/client.js; byte pinning is release-check criterion 4 (clientHash in scripts/check-release-reachability.mjs:11)', t => {
   if (!fs.existsSync(path.join(root, '.git'))) return t.skip('source snapshot has no git worktree for git diff')
   const diff = spawnSync('git', ['diff', '--quiet', '--', 'lib/client.js'], { cwd: root, encoding: 'utf8' })
   assert.equal(diff.status, 0, diff.error?.message || diff.stderr || 'git detected a change to lib/client.js')

@@ -164,7 +164,13 @@ try {
   } }
 
   const before = generatedFiles()
-  const build = run(process.execPath, ['scripts/build-plugin-entry.mjs'], A).trim()
+  let build = ''
+  let buildError
+  try {
+    build = run(process.execPath, ['scripts/build-plugin-entry.mjs'], A).trim()
+  } catch (error) {
+    buildError = error.stderr?.trim() || error.message
+  }
   const after = generatedFiles()
   const drift = [...new Set([...before.keys(), ...after.keys()])].sort().flatMap(file => {
     if (!before.has(file)) return [{ file, difference: 'missing' }]
@@ -184,7 +190,8 @@ try {
   const criteria = {
     1: { source: 'artifact-proven', pass: resolutionFailures === 0, resolutionFailures, entries },
     2: { source: 'artifact-proven', pass: missing.length === 0 && unexpected.length === 0, shipped, missing, unexpected },
-    3: { source: 'repo-proven', pass: drift.length === 0, build, before: before.size, after: after.size, drift },
+    3: { source: 'repo-proven', pass: !buildError && drift.length === 0, build, before: before.size, after: after.size, drift,
+      ...(buildError && { buildError }) },
     4: { source: 'artifact-proven', pass: p0.sha256 === clientHash && pkg.version === '0.3.0' && Object.values(p0.greps).every(Boolean), ...p0 },
     5: { source: 'repo-proven', pass: candidate.status === 0 && reference.status === 0 && outputMatches,
       baseline, reference, candidate, outputMatches },

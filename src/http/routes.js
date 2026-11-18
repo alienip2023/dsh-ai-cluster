@@ -338,6 +338,7 @@ export function registerUiRoutes({
   defaults = {},
   pullRoot,
   uiTemplatesFile,
+  admission = null,
   config = {},
   // 可达性自检结论（2026-10-17）：{ bound, origin, loopback, hint }
   // 绑 loopback 时副机永远连不上，而这个失败在主机侧完全静默 ——
@@ -931,6 +932,10 @@ export function registerUiRoutes({
     })
     if (!v.ok) return writeJson(res, 400, { error: v.error })
 
+    if (admission?.inScope(nodeId)) {
+      const { hint } = admission.reject('ui', nodeId, 'identity_unbound')
+      return writeJson(res, 403, { error: hint })
+    }
     registry.createTask({ nodeId, spec: v.spec })
     // approval（提案 #2）：exec 任务默认 manual —— 面板要如实告知"已挂起待批"
     writeJson(res, 200, { ok: true, taskId, nodeId, mode, approval: v.spec.approval })
