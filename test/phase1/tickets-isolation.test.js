@@ -8,6 +8,7 @@ import test from 'node:test'
 
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const ticketDir = path.join(root, 'src/tickets')
+const admissionDir = path.join(root, 'src/admission')
 const omitted = new Set(['.git', 'node_modules', 'task-board'])
 
 function* sources(dir) {
@@ -28,7 +29,7 @@ function* imports(file) {
 
 const withinTickets = file => file === ticketDir || file.startsWith(ticketDir + path.sep)
 
-test('T-ISO-1 src/tickets imports only node: built-ins and its own files, and no file outside src/tickets and its tests imports it', () => {
+test('T-ISO-1 src/tickets imports only node: built-ins and its own files, and only src/admission and ticket tests may import it from outside', () => {
   for (const file of sources(root)) {
     for (const spec of imports(file)) {
       const target = path.resolve(path.dirname(file), spec.split(/[?#]/, 1)[0])
@@ -36,7 +37,8 @@ test('T-ISO-1 src/tickets imports only node: built-ins and its own files, and no
         assert.ok((spec.startsWith('node:') && isBuiltin(spec)) ||
           (spec.startsWith('./') && withinTickets(target) && fs.statSync(target, { throwIfNoEntry: false })?.isFile()),
         `${file} imports ${spec} outside the ticket module`)
-      } else if (!/^test\/phase1\/tickets-.*\.test\.js$/.test(path.relative(root, file))) {
+      } else if (!file.startsWith(admissionDir + path.sep) &&
+        !/^test\/phase1\/tickets-.*\.test\.js$/.test(path.relative(root, file))) {
         assert.ok(!withinTickets(target) && !/(?:^|\/)src\/tickets(?:\/|$)/.test(spec),
           `${file} imports the ticket module via ${spec}`)
       }

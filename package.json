@@ -52,6 +52,8 @@
   },
   "files": [
     "lib",
+    "src/compat/dual-provide.js",
+    "src/compat/ra-names.js",
     "bin",
     "deploy",
     "docs",
@@ -94,6 +96,7 @@
     "test": "node --test test/*.test.js test/phase1/*.test.js",
     "check:docs": "node scripts/check-doc-drift.mjs",
     "check:packaging": "node scripts/check-packaging.mjs",
+    "check:release": "node scripts/check-release-reachability.mjs",
     "lint": "eslint .",
     "check": "npm run check:packaging && npm run check:docs && npm run diag:inject && npm test",
     "diag:inject": "node scripts/diag-inject.mjs"
