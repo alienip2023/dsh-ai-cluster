@@ -74,23 +74,15 @@ const effectSlice = effectStart >= 0 ? src.slice(effectStart, src.indexOf('}, [a
 test('source: bots/memory branches fetch and render the exact empty sentences', () => {
   assert.ok(effectSlice, 'screen fetch effect must exist')
   const botsBranch = effectSlice.slice(effectSlice.indexOf("activeScreen === 'bots'"), effectSlice.indexOf("activeScreen === 'memory'"))
-  const memBranch = effectSlice.slice(effectSlice.indexOf("activeScreen === 'memory'"))
+  const modelsBranch = effectSlice.slice(effectSlice.indexOf("activeScreen === 'models'"))
   assert.match(botsBranch, /apiGet\('\/bots'\)/)
-  assert.match(memBranch, /apiGet\('\/memory'\)/)
+  assert.match(modelsBranch, /apiGet\('\/models'\)/)
+  // p4：记忆屏不再走本插件的 /memory 桩，由 ui-p4-memory-screen.test.js 覆盖
+  assert.doesNotMatch(effectSlice, /apiGet\('\/memory'\)/)
   assert.doesNotMatch(src, /名册未采集，本阶段不建存储/, 'p3-s1: roster stub sentence is gone')
   assert.match(src, /还没有机器人上报/)
-  assert.match(src, /记忆存储未建，本阶段不读写/)
+  assert.doesNotMatch(src, /记忆存储未建，本阶段不读写/, 'p4: memory stub sentence is gone')
   assert.match(src, /读机器人列表失败/)
   assert.match(src, /读取中…/)
   assert.match(src, /h\('p', null, '未接入'\)/, 'models screen keeps 未接入')
-})
-
-test('source: scope tab switching does not fetch; fetch is guarded once', () => {
-  const tabStart = src.indexOf("['own', 'group', 'team', 'bot'].map")
-  assert.ok(tabStart >= 0)
-  const tabSlice = src.slice(tabStart, src.indexOf('范围视图本阶段未接入', tabStart))
-  assert.match(tabSlice, /setMemScope\(sc\)/)
-  assert.doesNotMatch(tabSlice, /apiGet/)
-  assert.match(effectSlice, /screenFetched\.current\.memory\s*=\s*true/)
-  assert.match(src, /范围视图本阶段未接入/)
 })
