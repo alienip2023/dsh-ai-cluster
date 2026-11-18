@@ -180,7 +180,7 @@ test('source (p3-s1a): bots fetch is not once-only and its effect depends on the
   assert.match(deps, /\btick\b/)
   // the existing poll interval drives pollTick; no second setInterval
   assert.match(clientSrc, /load\(\)\n\s*setPollTick\(/)
-  // memory/models stay once-only
+  // memory stays once-only; models went to the poll loop in p3-s3
   assert.match(slice, /screenFetched\.current\.memory\s*=\s*true/)
-  assert.match(slice, /screenFetched\.current\.models\s*=\s*true/)
+  assert.doesNotMatch(slice, /screenFetched\.current\.models/)
 })

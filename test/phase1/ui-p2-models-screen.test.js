@@ -69,19 +69,14 @@ const effectSlice = effectStart >= 0 ? src.slice(effectStart, src.indexOf('}, [a
 const modelsStart = src.indexOf("screen === 'models' ?")
 const renderSlice = modelsStart >= 0 ? src.slice(modelsStart, src.indexOf("h('p', null, '未接入')", modelsStart)) : ''
 
-test('source: models branch fetches /models and renders distinct sentences', () => {
+test('source: models branch fetches /models and renders distinct sentences (p3-s3 contract)', () => {
   assert.ok(effectSlice && renderSlice)
   const branch = effectSlice.slice(effectSlice.indexOf("activeScreen === 'models'"))
   assert.match(branch, /apiGet\('\/models'\)/)
-  assert.match(renderSlice, /同步状态未采集/)
-  assert.match(renderSlice, /未上报/)
-  assert.match(renderSlice, /明确没有/)
-  assert.match(renderSlice, /先接一台电脑/)
-  assert.match(renderSlice, /dra-hl/)
-  assert.match(renderSlice, /默认/)
-  const nullBranch = renderSlice.slice(renderSlice.indexOf('!row.reported'), renderSlice.indexOf('row.ids.length === 0'))
-  assert.match(nullBranch, /未上报/)
-  assert.doesNotMatch(nullBranch, /明确没有|0 个/)
+  assert.doesNotMatch(renderSlice, /同步状态未采集/)
+  assert.match(src, /尚未上报模型/)
+  assert.match(src, /没有可用模型/)
+  assert.match(renderSlice, /modelsView\(screenData\.models\)/)
 })
 
 test('source: no sync path, apiKey or appliedRevision in the client', () => {
@@ -90,8 +85,8 @@ test('source: no sync path, apiKey or appliedRevision in the client', () => {
   assert.doesNotMatch(src, /appliedRevision/)
 })
 
-test('source: fetch is guarded once per mount and lives in the effect', () => {
-  assert.match(effectSlice, /!screenFetched\.current\.models/)
-  assert.match(effectSlice, /screenFetched\.current\.models\s*=\s*true/)
+test('source: models fetch lives in the effect, is poll-driven with an in-flight guard (p3-s3)', () => {
+  assert.match(effectSlice, /!modelsInflight\.current/)
+  assert.doesNotMatch(effectSlice, /screenFetched\.current\.models/)
   assert.doesNotMatch(renderSlice, /apiGet/)
 })

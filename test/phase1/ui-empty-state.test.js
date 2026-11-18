@@ -7,11 +7,11 @@ import { makeCtx } from './_plugin-ctx.js'
 const prefixes = [UI_API_PREFIX, LEGACY_UI_API_PREFIX]
 const screens = [
   { name: 'bots', screen: 'S1', reason: null }, // p3-s1：不再是桩，由 ui-p3-s1-roster.test.js 覆盖数据契约
-  { name: 'models', screen: 'S3', reason: 'ack-store-not-built' },
+  { name: 'models', screen: 'S3', reason: null }, // p3-s3：不再是桩，由 ui-p3-s3-models.test.js 覆盖数据契约
   { name: 'memory', screen: 'S4', reason: 'memory-store-not-built' },
 ]
 
-function fixture(t, registry = { list: () => [], listTasks: () => [], rosterList: () => [] }) {
+function fixture(t, registry = { list: () => [], listTasks: () => [], rosterList: () => [], modelList: () => [] }) {
   const ctx = makeCtx()
   const routes = new Map()
   ctx.webServer = {
@@ -55,7 +55,7 @@ const stripAt = (r) => { const { at, ...rest } = r.body ?? {}; return { ...r, bo
 for (const { name, screen, reason } of screens) {
   const expected = { ok: false, code: 'not-available', screen, reason }
 
-  if (reason === null) test(`${name} is served by the roster store: exact routes, empty store is ok:true,total:0`, async (t) => {
+  if (reason === null) test(`${name} is served by its registry store: exact routes, empty store is ok:true,total:0`, async (t) => {
     const { routes } = fixture(t)
     for (const prefix of prefixes) {
       const pathname = `${prefix}/${name}`
