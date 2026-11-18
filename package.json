@@ -91,7 +91,7 @@
     "node": "^22.19.0 || >=24.0.0"
   },
   "scripts": {
-    "test": "node --test test/*.test.js",
+    "test": "node --test test/*.test.js test/phase1/*.test.js",
     "check:docs": "node scripts/check-doc-drift.mjs",
     "check:packaging": "node scripts/check-packaging.mjs",
     "lint": "eslint .",

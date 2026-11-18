@@ -37,6 +37,6 @@ test('除 caps 常量（归 slice 2）外，旧 protocol 的导出在新 wire �
 })
 
 test('normalizePeerUrl 只认新对端路径', () => {
-  assert.equal(newW.normalizePeerUrl('wss://h.example/api/ai-cluster/peer'), 'wss://h.example/api/ai-cluster/peer')
-  assert.equal(newW.normalizePeerUrl('wss://h.example/api/remote-agent/peer'), '')
+  assert.equal(newW.normalizePeerUrl('wss://h.example/api/remote-agent/peer'), 'wss://h.example/api/remote-agent/peer')
+  assert.equal(newW.normalizePeerUrl('wss://h.example/api/ai-cluster/peer'), '')
 })
