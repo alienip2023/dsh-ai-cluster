@@ -122,6 +122,7 @@ import http from 'node:http'
 import https from 'node:https'
 import { applyRelayMemory, buildRelayAutoconfigYaml, readRelayToken, readRelayUrl, readRelayTransportMode } from '../../lib/hub/relay-memory.js'
 
+import { validateBotCreate, validateBotUpdate } from '../../lib/protocol.js'
 import { LEGACY_UI_API_PREFIX, UI_API_PREFIX } from './prefix.js'
 import { resolvePullDest } from '../ops/pull.js'
 export { LEGACY_UI_API_PREFIX, UI_API_PREFIX, resolvePullDest }
@@ -531,6 +532,58 @@ export function registerUiRoutes({
     const total = nodes.reduce((sum, n) => sum + n.bots.length, 0)
     return writeJson(res, 200, { ok: true, at: Date.now(), total, nodes })
   })
+
+  // ── 动作：在节点上创建 / 编辑 Bot（p3-s2）──────────────────────
+  // 走既有 bot/create、bot/update 帧；回答以节点真实回执为准，不做乐观成功。
+  // 预期内的拒绝（节点拒绝 / 超时 / 离线）一律 200 {ok:false,error}，不回 500。
+  // 绝不记录 instructions 内容（日志里只有 nodeId 与结果码）。
+  const botText = (v) => (typeof v === 'string' ? v : undefined)
+  // update 帧里空串 role 会清空角色；面板留空表示「不改」，所以空白一律不发（因此 edit 无法把字段清空）。
+  const blankToUndef = (v) => (typeof v === 'string' && v.trim() !== '' ? v : undefined)
+  async function botAction(req, res, kind) {
+    if (req.method !== 'POST') return writeJson(res, 405, { error: 'method' })
+    const body = await readJson(req)
+    if (!body) return writeJson(res, 400, { ok: false, error: 'bad-body' })
+    const nodeId = typeof body.nodeId === 'string' ? body.nodeId.trim() : ''
+    if (nodeId === '') return writeJson(res, 400, { ok: false, error: 'bot-nodeId-missing' })
+    const probe = { nodeId, requestId: 'probe' }
+    let spec
+    if (kind === 'create') {
+      const checked = validateBotCreate({
+        ...probe, name: body.name, role: botText(body.role), modelRef: botText(body.modelRef),
+        workDir: botText(body.workDir), instructions: botText(body.instructions),
+      })
+      if (!checked.ok) return writeJson(res, 400, { ok: false, error: checked.error })
+      const c = checked.create
+      spec = { name: c.name, role: c.role, modelRef: c.modelRef, workDir: c.workDir, instructions: c.instructions }
+    } else {
+      const remoteBotId = typeof body.botId === 'string' ? body.botId.trim() : ''
+      if (remoteBotId === '') return writeJson(res, 400, { ok: false, error: 'bot-update-remoteBotId-missing' })
+      const checked = validateBotUpdate({
+        ...probe, remoteBotId, name: body.name, role: blankToUndef(body.role), model: blankToUndef(body.modelRef),
+        workDir: blankToUndef(body.workDir), instructions: blankToUndef(body.instructions),
+      })
+      if (!checked.ok) return writeJson(res, 400, { ok: false, error: checked.error })
+      const u = checked.update
+      // update 帧的字段名是 model（不是 modelRef）；null = 不改。
+      spec = { remoteBotId, model: u.model, name: u.name, role: u.role, workDir: u.workDir, instructions: u.instructions }
+    }
+    if (!registry.getNode(nodeId)) return writeJson(res, 200, { ok: false, error: 'node-offline' })
+    let result
+    try {
+      result = await (kind === 'create' ? registry.createBot(nodeId, spec) : registry.updateBot(nodeId, spec))
+    } catch (err) {
+      log('warn', `bot ${kind} failed`, { nodeId, error: shortMessage(err) })
+      return writeJson(res, 200, { ok: false, error: `bot-${kind}-failed` })
+    }
+    log('info', `bot ${kind} result`, { nodeId, ok: result?.ok === true, error: result?.ok ? undefined : result?.error })
+    if (result?.ok === true) {
+      return writeJson(res, 200, { ok: true, nodeId, ...(result.remoteBotId ? { remoteBotId: result.remoteBotId } : {}) })
+    }
+    return writeJson(res, 200, { ok: false, error: String(result?.error || `bot-${kind}-failed`) })
+  }
+  routeBoth('/bots/create', (req, res) => botAction(req, res, 'create'))
+  routeBoth('/bots/update', (req, res) => botAction(req, res, 'update'))
 
   routeBoth('/models', (req, res) => {
     if (req.method !== 'GET') return writeJson(res, 405, { error: 'method' })
