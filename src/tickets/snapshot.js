@@ -1,0 +1,80 @@
+/** Verified ledger-prefix checkpoints with same-directory atomic replacement. */
+import { createHash, randomBytes } from 'node:crypto'
+import path from 'node:path'
+import { TicketError, TicketErrorCode, hasFields } from './identity.js'
+import { decodeJson, fileStamp, writeAll } from './ledger-file.js'
+
+const snapshotFields = ['v', 'throughSeq', 'throughOffset', 'ledgerHeadSha256', 'tickets']
+const unsupported = new Set(['EPERM', 'EISDIR', 'EINVAL', 'ENOTSUP'])
+
+export function mismatch(message) {
+  return new TicketError(TicketErrorCode.SNAPSHOT_MISMATCH, message)
+}
+
+export function checkSnapshot(bytes, ledger) {
+  if (bytes === null) return { snapshot: null, junk: false }
+  let snapshot
+  try {
+    snapshot = decodeJson(bytes)
+  } catch {
+    return { snapshot: null, junk: true }
+  }
+  if (!hasFields(snapshot, snapshotFields) || snapshot.v !== 1 || !Array.isArray(snapshot.tickets)) {
+    throw mismatch('Invalid ticket snapshot shape')
+  }
+  const { throughSeq, throughOffset, ledgerHeadSha256 } = snapshot
+  if (!Number.isSafeInteger(throughSeq) || ledger.boundaries.get(throughOffset) !== throughSeq) {
+    throw mismatch('Snapshot is ahead of the ledger or has an invalid checkpoint boundary')
+  }
+  if (createHash('sha256').update(ledger.bytes.subarray(0, throughOffset)).digest('hex') !== ledgerHeadSha256) {
+    throw mismatch('Snapshot ledger prefix hash differs')
+  }
+  return { snapshot, junk: false }
+}
+
+export function quarantineSnapshot(fs, file, at) {
+  const base = `${file}.bad-${fileStamp(at)}`
+  let dest = base
+  for (let n = 1; fs.existsSync(dest); n++) dest = `${base}-${n}`
+  fs.renameSync(file, dest)
+}
+
+export function cleanSnapshotTemps(fs, file) {
+  const dir = path.dirname(file)
+  const prefix = `${path.basename(file)}.tmp-`
+  for (const name of fs.readdirSync(dir)) {
+    if (name.startsWith(prefix)) fs.unlinkSync(path.join(dir, name))
+  }
+}
+
+export function writeSnapshot(fs, file, snapshot, durability) {
+  const dir = path.dirname(file)
+  const temp = `${file}.tmp-${process.pid}-${randomBytes(8).toString('hex')}`
+  const fd = fs.openSync(temp, 'wx', 0o600)
+  let renamed = false
+  try {
+    try {
+      writeAll(fs, fd, Buffer.from(JSON.stringify(snapshot)))
+      if (durability === 'fsync') fs.fsyncSync(fd)
+    } finally {
+      fs.closeSync(fd)
+    }
+    fs.renameSync(temp, file)
+    renamed = true
+  } finally {
+    if (!renamed) fs.unlinkSync(temp)
+  }
+  if (durability === 'none') return 'disabled'
+  try {
+    const dirFd = fs.openSync(dir, 'r')
+    try {
+      fs.fsyncSync(dirFd)
+    } finally {
+      fs.closeSync(dirFd)
+    }
+    return 'synced'
+  } catch (error) {
+    if (unsupported.has(error.code)) return 'unsupported'
+    throw error
+  }
+}
