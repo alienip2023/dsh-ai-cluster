@@ -1,6 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { apply } from '../../src/plugin/index.js'
 import { registerUiRoutes } from '../../src/http/routes.js'
 import { makeCtx } from './_plugin-ctx.js'
 
@@ -67,11 +70,57 @@ test('empty config preserves the default panel config', async (t) => {
   assert.equal(current.body.config.relayUrl, '')
 })
 
-test('plugin passes raw config alongside defaults and sessionGate to registerUiRoutes', () => {
-  const source = readFileSync(new URL('../../src/plugin/index.js', import.meta.url), 'utf8')
-  assert.match(
-    source,
-    /handles\.routes\s*=\s*registerUiRoutes\(\{\s*ctx, registry, pulls, log, defaults, sessionGate: handles\.hub\.sessionGate, config\s*\}\)/,
-    'registerUiRoutes must receive config with defaults and sessionGate',
-  )
+// Drive the real apply() -> applyHub -> registerUiRoutes hand-off and capture what the
+// route layer receives / serves. Registration is now delegated through the applyHub
+// callback, so the call shape is pinned by behavior rather than by source text.
+function applyFixture(t, config) {
+  const routes = new Map()
+  const ctx = {
+    logger: { info() {}, warn() {}, error() {}, debug() {} },
+    effect(fn) { const d = fn(); return typeof d === 'function' ? d : () => {} },
+    on() { return () => {} },
+    get() { return undefined },
+    provide() {},
+    webServer: {
+      register(route) {
+        routes.set(route.path, route)
+        return () => { if (routes.get(route.path) === route) routes.delete(route.path) }
+      },
+      registerUpgrade() { return () => {} },
+    },
+    tools: { register() { return () => {} } },
+    systemPrompt: { section() { return () => {} } },
+    subagents: { registerProvider: () => () => {} },
+  }
+  // Isolated stateDir: apply() merges <stateDir>/instance.json over the loader config,
+  // so without this the test would read the machine's real instance profile.
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), 'ai-passthrough-'))
+  const handles = apply(ctx, { ...config, stateDir })
+  t.after(() => {
+    handles.dispose?.()
+    rmSync(stateDir, { recursive: true, force: true })
+  })
+  return routes
+}
+
+test('plugin hands registerUiRoutes the raw config and defaults through the applyHub callback', async (t) => {
+  const config = {
+    role: 'hub', nodeToken: 'nt_test', uiEnabled: true, listenPort: 0,
+    relayUrl: 'wss://relay.example/ws', sessionGate: true,
+  }
+  const routes = applyFixture(t, config)
+  const view = await request(routes, '/api/ai-cluster/ui/config')
+  assert.equal(view.status, 200)
+  // raw config reached the route layer (values the normalized defaults could not supply)
+  assert.equal(view.body.config.relayUrl, 'wss://relay.example/ws')
+  assert.equal(view.body.config.nodeTokenSet, true)
+  // config.sessionGate is reachable and takes effect on the route side
+  assert.equal(view.body.config.sessionGate, true)
+  assert.deepEqual(await request(routes, '/api/remote-agent/ui/config'), view)
+})
+
+test('sessionGate defaults to false on the route side when config does not set it', async (t) => {
+  const routes = applyFixture(t, { role: 'hub', nodeToken: 'nt_test', uiEnabled: true, listenPort: 0 })
+  const view = await request(routes, '/api/ai-cluster/ui/config')
+  assert.equal(view.body.config.sessionGate, false)
 })
