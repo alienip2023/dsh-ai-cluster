@@ -267,7 +267,7 @@ check('15g', 'KNOWN-ISSUES 6.3b 记录「kill 致还原被跳过」+ 结构性�
   /###\s*6\.3b/.test(known) && /try\/finally/.test(known) && /ALLOW_MUTATE_WORKTREE/.test(known),
   'KNOWN-ISSUES.md 第 6.3b 节')
 
-/* ── 16. client.js 契约 ── */check('16', 'PANEL_KEY 是单符号常量', /PANEL_KEY\s*=\s*'dsh-remote-agent'/.test(client), 'client.js')
+/* ── 16. client.js 契约 ── */check('16', 'PANEL_KEY 是单符号常量', /PANEL_KEY\s*=\s*'dsh-ai-cluster'/.test(client), 'client.js')
 check('17', 'sidebar.panellist 用 id: PANEL_KEY', /id:\s*PANEL_KEY/.test(client), 'client.js')
 check('18', 'main 用 key: PANEL_KEY', /key:\s*PANEL_KEY/.test(client), 'client.js')
 check('19', 'client 侧 API 前缀与 Host 一致',
