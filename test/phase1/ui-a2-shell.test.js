@@ -255,7 +255,7 @@ test('shell: DOM 结构与一句话摘要', async () => {
 const BASE_MOUNT = [
   'GET /api/ai-cluster/ui/config', 'GET /api/ai-cluster/ui/env-check', 'GET /api/ai-cluster/ui/node-status',
   'GET /api/ai-cluster/ui/overview', 'GET /api/ai-cluster/ui/pair-info?port=', 'GET /api/ai-cluster/ui/ssh-hosts',
-  'GET /api/ai-cluster/ui/tasks', 'GET /api/ai-cluster/ui/templates', 'GET /api/remote-agent/setup/state',
+  'GET /api/ai-cluster/ui/tasks', 'GET /api/ai-cluster/ui/templates', 'GET /api/ai-cluster/ui/tickets', 'GET /api/remote-agent/setup/state',
 ]
 const BASE_SCREEN = {
   tasks: [], computers: [],
@@ -263,7 +263,7 @@ const BASE_SCREEN = {
   models: ['GET /api/ai-cluster/ui/models'],
   memory: ['POST /api/bot {"endpoint":"memory-hub-scopes","payload":{}}', 'POST /api/bot {"endpoint":"memory-hub-view","payload":{"scope":{"kind":"team"}}}'],
 }
-const BASE_STATE_KEYS = ['caps', 'connection', 'counts', 'discovery', 'error', 'loading', 'mode', 'nodes', 'relay', 'role', 'setup', 'tasks', 'topology', 'transportSummary', 'worker']
+const BASE_STATE_KEYS = ['caps', 'connection', 'counts', 'discovery', 'error', 'loading', 'mode', 'nodes', 'relay', 'role', 'setup', 'tasks', 'tickets', 'topology', 'transportSummary', 'worker']
 /** 基线 a8e0bac 源码里每个 apiGet/apiPost/apiGetPath/apiPostPath/botApi/fetch 调用点所在行（去注释、去缩进、排序）的 sha256。 */
 const BASE_CALLSITES = 54
 const BASE_CALLSITE_DIGEST = '68de6e3400f428650527dd2d2302dce3283691bab689dce37696f89c52a8560d'
@@ -294,6 +294,10 @@ test('screens: 读写契约不变', async () => {
   assert.ok(polled.every((c) => BASE_MOUNT.includes(c) || BASE_SCREEN.computers.includes(c)), '轮询不新增请求：' + polled.join(', '))
   // 源码级：调用点逐行不变（路径与请求体）
   const sites = callSites(src)
+  const ticketSite = "apiGet('/tickets').catch(function () { return null }),"
+  const ticketIndex = sites.indexOf(ticketSite)
+  assert.notEqual(ticketIndex, -1, '/tickets GET 调用点')
+  sites.splice(ticketIndex, 1)
   const digest = crypto.createHash('sha256').update(sites.join('\n')).digest('hex')
   assert.equal(sites.length, BASE_CALLSITES, '调用点行数')
   assert.equal(digest, BASE_CALLSITE_DIGEST, '调用点内容（路径/请求体）与基线一致：\n' + sites.join('\n'))

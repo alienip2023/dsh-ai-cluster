@@ -52,6 +52,7 @@ async function runLoadHub(overview, status, role = 'hub') {
   let hubResult
   const sandbox = {
     apiGet(path) {
+      if (path === '/tickets') return Promise.resolve({ tickets: null })
       calls.push(path)
       if (path === '/overview') return Promise.resolve(overview)
       if (path === '/tasks') return Promise.resolve(tasks)
