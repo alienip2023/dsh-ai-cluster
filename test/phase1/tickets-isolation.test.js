@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { isBuiltin } from 'node:module'
@@ -46,8 +46,10 @@ test('T-ISO-1 src/tickets imports only node: built-ins and its own files, and on
   }
 })
 
-test('T-ISO-2 clears uncommitted drift of lib/client.js; byte pinning is release-check criterion 4 (clientHash in scripts/check-release-reachability.mjs:11)', t => {
-  if (!fs.existsSync(path.join(root, '.git'))) return t.skip('source snapshot has no git worktree for git diff')
-  const diff = spawnSync('git', ['diff', '--quiet', '--', 'lib/client.js'], { cwd: root, encoding: 'utf8' })
-  assert.equal(diff.status, 0, diff.error?.message || diff.stderr || 'git detected a change to lib/client.js')
+test('T-ISO-2 accepts only the client bytes pinned by release-check criterion 4', () => {
+  const releaseCheck = fs.readFileSync(path.join(root, 'scripts/check-release-reachability.mjs'), 'utf8')
+  const pin = releaseCheck.match(/^const clientHash = '([a-f0-9]{64})'$/m)?.[1]
+  assert.ok(pin, 'missing release client hash')
+  const actual = createHash('sha256').update(fs.readFileSync(path.join(root, 'lib/client.js'))).digest('hex')
+  assert.equal(actual, pin)
 })

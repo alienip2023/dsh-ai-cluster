@@ -294,10 +294,13 @@ test('screens: 读写契约不变', async () => {
   assert.ok(polled.every((c) => BASE_MOUNT.includes(c) || BASE_SCREEN.computers.includes(c)), '轮询不新增请求：' + polled.join(', '))
   // 源码级：调用点逐行不变（路径与请求体）
   const sites = callSites(src)
-  const ticketSite = "apiGet('/tickets').catch(function () { return null }),"
-  const ticketIndex = sites.indexOf(ticketSite)
-  assert.notEqual(ticketIndex, -1, '/tickets GET 调用点')
-  sites.splice(ticketIndex, 1)
+  for (const site of ["apiGet('/tickets').catch(function () { return null }),", 'apiPost(path, body).then(function (result) {']) {
+    const index = sites.indexOf(site)
+    assert.notEqual(index, -1, site)
+    sites.splice(index, 1)
+  }
+  assert.match(src, /onToggle: function \(enabled\) \{ discoveryAction\('\/discovery\/toggle', \{ enabled: enabled \}\) \}/)
+  assert.match(src, /onScan: function \(\) \{ discoveryAction\('\/discovery\/scan'\) \}/)
   const digest = crypto.createHash('sha256').update(sites.join('\n')).digest('hex')
   assert.equal(sites.length, BASE_CALLSITES, '调用点行数')
   assert.equal(digest, BASE_CALLSITE_DIGEST, '调用点内容（路径/请求体）与基线一致：\n' + sites.join('\n'))

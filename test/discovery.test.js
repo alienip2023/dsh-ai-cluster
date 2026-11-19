@@ -87,6 +87,27 @@ test('5 默认关闭：不创建 socket、peers 为空', async () => {
   }
 })
 
+test('stopping during bind cancels start and a stale bind cannot send an offer', async () => {
+  let finishBind
+  let closed = 0
+  let sent = 0
+  const socket = {
+    on() {},
+    bind(_port, _host, ready) { finishBind = ready },
+    send() { sent++ },
+    close() { closed++ },
+  }
+  const discovery = createDiscovery({ dgram: { createSocket: () => socket } })
+  const starting = discovery.start({ enabled: true })
+  assert.equal(discovery.start({ enabled: true }), starting)
+  discovery.stop()
+  assert.equal(await starting, false)
+  finishBind()
+  assert.equal(discovery.scan(), false)
+  assert.equal(closed, 1)
+  assert.equal(sent, 0)
+})
+
 test('5b 端口被占用：warn 一次并降级，不抛', async () => {
   const handlers = {}
   const fake = {

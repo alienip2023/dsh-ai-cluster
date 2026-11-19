@@ -275,7 +275,10 @@ test('AC-2 criterion 9: caller matrix rejects scoped bypasses and the whole batc
 test('AC-2 criterion 11: protocol and client pin, no admission fields in a scoped frame', async t => {
   const h = await setup(t)
   assert.equal(m.PROTOCOL_VERSION, 1)
-  assert.equal(hash(readFileSync(path.join(root, 'lib/client.js'))), '0ee18f41525850fd217c3d593ec9163d911d9bdd6d9be6333b68acbc4322d8bd')
+  const releaseCheck = readFileSync(path.join(root, 'scripts/check-release-reachability.mjs'), 'utf8')
+  const clientHash = releaseCheck.match(/^const clientHash = '([a-f0-9]{64})'$/m)?.[1]
+  assert.ok(clientHash, 'missing release client hash')
+  assert.equal(hash(readFileSync(path.join(root, 'lib/client.js'))), clientHash)
   assert.equal(JSON.parse(readFileSync(path.join(root, 'package.json'))).version, '0.4.1')
   const result = await h.tool()
   assert.equal(h.frames.length, 1)

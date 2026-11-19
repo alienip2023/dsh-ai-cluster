@@ -7,8 +7,8 @@ import os from 'node:os'
 import path from 'node:path'
 
 const baseline = '58052c9cdb2e2c8ab7058837e8176996a6532f3a'
-// The T-ISO-2 test uses git diff. Pin the bytes from the AC-1 baseline (after A2).
-const clientHash = '2aeb3606395e95cd52660602071700e2b1f13dee826b69e7c12335cd889ef52c'
+// T-ISO-2 and release criterion 4 verify the measured bytes of lib/client.js.
+const clientHash = 'ae0d7a8272e4a3171bcaf323dfa8ffd7a59a0e354313d8c1b5e8d4e5ecdd0ebe'
 const srcFiles = ['src/compat/dual-provide.js', 'src/compat/ra-names.js']
 const ticketFiles = ['identity.js', 'index.js', 'ledger-file.js', 'snapshot.js', 'store.js']
 const registerTest = 'test/phase1/tool-alias-register.test.js'

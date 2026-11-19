@@ -17,7 +17,11 @@ function loadView() {
           plugin = mod.factory(function (id) {
             if (id !== 'react') throw new Error('unexpected require ' + id)
             return {
-              createElement() { return null },
+              createElement(type, props, ...children) {
+                const attrs = { ...props, children }
+                delete attrs.key
+                return typeof type === 'function' ? type(attrs) : { type, props: attrs, children }
+              },
               useState(v) { return [v, function () {}] },
               useEffect() {},
               useRef(v) { return { current: v } },
@@ -80,11 +84,39 @@ test('4. missing hostname is reported as not reported', () => {
   eq(r.rows.map((x) => x.addressLabel), ['地址未上报', '地址未上报'])
 })
 
-test('5. source slice wiring', () => {
-  assert.match(src, /next\.discovery = ov && ov\.discovery \? ov\.discovery : null/)
-  assert.match(src, /topology: null, discovery: null/)
-  for (const s of ['局域网发现', '局域网发现未开启', '未发现未配对的机器', '地址已隐藏']) assert.ok(src.includes(s), s)
-  assert.equal(src.includes("apiGet('/discovery')"), false)
-  assert.equal(src.includes('/discovery'), false)
-  assert.equal(/fetch\([^)]*discovery/i.test(src), false)
+test('5. rendered discovery card has a switch and scan, with no peer actions or names', () => {
+  const { DiscoveryCard } = loadView()
+  const onToggle = (...args) => calls.push(['toggle', ...args])
+  const onScan = (...args) => calls.push(['scan', ...args])
+  const calls = []
+  const elements = (tree) => Array.isArray(tree) ? tree.flatMap(elements)
+    : tree && typeof tree === 'object' ? [tree, ...elements(tree.children)] : []
+  const props = { nodes: [], onToggle, onScan }
+  const off = DiscoveryCard({ ...props, discovery: { enabled: false, peers: [] } })
+  const [onSwitch, offScan] = elements(off).filter((e) => e.type === 'button')
+  eq(onSwitch.children, ['开启'])
+  assert.equal(onSwitch.props.role, 'switch')
+  assert.equal(onSwitch.props['aria-checked'], false)
+  eq(offScan.children, ['扫描'])
+  assert.equal(offScan.props.disabled, true)
+  onSwitch.props.onClick()
+
+  const on = DiscoveryCard({ ...props, discovery: { enabled: true, peers: [peer({
+    node: 'private-name', hostname: '10.0.0.10', role: 'node', port: 19387,
+  })] } })
+  const [offSwitch, scan, extra] = elements(on).filter((e) => e.type === 'button' || e.type === 'a')
+  assert.equal(extra, undefined)
+  eq(offSwitch.children, ['关闭'])
+  assert.equal(offSwitch.props['aria-checked'], true)
+  eq(scan.children, ['扫描'])
+  assert.equal(scan.props.disabled, false)
+  offSwitch.props.onClick()
+  scan.props.onClick()
+  assert.deepEqual(calls, [['toggle', true], ['toggle', false], ['scan']])
+  const rendered = JSON.stringify(on)
+  assert.match(rendered, /局域网发现/)
+  assert.match(rendered, /10\.0\.0\.10/)
+  assert.match(rendered, /node · 19387/)
+  assert.doesNotMatch(rendered, /private-name|connect|连接/)
+  assert.match(src, /h\(DiscoveryCard, \{\s+discovery: state\.discovery/)
 })

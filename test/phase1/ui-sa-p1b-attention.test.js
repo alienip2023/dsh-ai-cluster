@@ -103,6 +103,13 @@ function removeNode(node, removed) {
   return [type, props, children.filter(child => child !== removed).map(child => removeNode(child, removed))]
 }
 
+// The discovery card has its own rendering contract in ui-p2-discovery.test.js.
+function withoutDiscoveryCard(tree) {
+  const card = [...elements(tree)].find(node => node[0] === 'section' &&
+    node[2][0]?.[2]?.some(child => child[0] === 'h3' && child[2][0] === '局域网发现'))
+  return card ? removeNode(tree, card) : tree
+}
+
 // The pinned structural tree is embedded below so the suite runs without a git
 // checkout or an environment variable. An explicit pristine client additionally
 // allows the embedded tree to be checked against the pin during verification.
@@ -619,7 +626,8 @@ test('ended tickets never appear in the attention list', () => {
 test('fold null for absent undefined null and empty props keeps five-screen trees equal to baseline', () => {
   for (const props of [{}, { tickets: undefined }, { tickets: null }, { tickets: [] }]) {
     for (const [screen] of screens) {
-      assert.deepEqual(screenTree(screen, props), baseline[screen], '折叠区缺省时五屏输出应与基线一致')
+      assert.deepEqual(withoutDiscoveryCard(screenTree(screen, props)), withoutDiscoveryCard(baseline[screen]),
+        '折叠区缺省时其他区域应与基线一致')
     }
   }
 })
@@ -641,7 +649,8 @@ test('deleting the fold subtree restores the baseline tasks tree', () => {
     const tree = screenTree(screen, { tickets: [open] })
     const folds = findFolds(tree)
     assert.equal(folds.length, screen === 'tasks' ? 1 : 0)
-    assert.deepEqual(screen === 'tasks' ? removeNode(tree, folds[0]) : tree, baseline[screen])
+    const withoutFold = screen === 'tasks' ? removeNode(tree, folds[0]) : tree
+    assert.deepEqual(withoutDiscoveryCard(withoutFold), withoutDiscoveryCard(baseline[screen]))
   }
 })
 
