@@ -44,11 +44,11 @@ test('TUN-17 probes local listen port', async () => {
   assert.ok(Number.isFinite(sample.probes[0].rttMs) && sample.probes[0].rttMs >= 0)
 
   const repeated = await collectConnectivity(options)
-  assert.deepEqual(connects, [address, address], message)
-  assert.equal(repeated.probes.length, 1, message)
+  assert.deepEqual(connects, [address], message)
+  assert.deepEqual(repeated, sample, message)
 
   const duplicate = await collectConnectivity({ ...options, config: { probeHosts: ['127.0.0.1:25565'] } })
-  assert.deepEqual(connects, [address, address, address], message)
+  assert.deepEqual(connects, [address, address], message)
   assert.equal(duplicate.probes.length, 1, message)
 })
 
