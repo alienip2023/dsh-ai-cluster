@@ -612,3 +612,17 @@ test('MP2-H2 size mismatch', async (t) => {
   assert.equal(fs.existsSync(fixture.finalPath), false)
   assert.deepEqual(rejections(fixture.records), [])
 })
+
+test('MP2-D1 verified true total digest mismatch', async (t) => {
+  const fixture = await interruptedPull(t)
+  const { result, done } = await resumeThroughLastChunk(fixture)
+  const WRONG = sha('not helloworld')
+  fixture.pulls.ingestDone({ ...done, sha256: WRONG, verified: true })
+  await assert.rejects(result, {
+    code: 'hash-mismatch',
+    message: `hash-mismatch: node reported ${WRONG} but hub computed ${FULL_SHA}`,
+  }, 'MP2-D1: total digest mismatch must reject with hash-mismatch')
+  assert.equal(fs.existsSync(fixture.finalPath), false, 'MP2-D1: mismatched digest must not publish')
+  assert.equal(fs.existsSync(fixture.part), false, 'MP2-D1: content-level failure must remove the partial')
+  assert.deepEqual(rejections(fixture.records), [], 'MP2-D1: no resume-rejection diagnostic on the happy resume')
+})
