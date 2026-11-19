@@ -279,7 +279,7 @@ const tab2 = ["button", {"key":"computers","id":"tab-computers","type":"button",
 ]]
 const baseline = {
   computers: ["div", {"className":"dra-root","data-theme":"dark"}, [
-    ["style", {"key":"dra-css"}, ["77e7f6555e301dc69158f8ce172550a6898cb5e497847d2067622c597ea564f9"]],
+    ["style", {"key":"dra-css"}, ["1c0c7af62bff68cea7875ac1baf81bada3d1916764e4a791bc75d1e3847c1dce"]],
     shell_head,
     ["nav", {"className":"dra-shell-nav","aria-label":"主要屏幕"}, [
       ["div", {"className":"dra-tablist","role":"tablist","aria-label":"主要屏幕","onKeyDown":"function:754c6a834ecd5b3c6d6dbdfcd5dbb70ad2c4609a62c20461e6fdd35acc7e4260"}, [
@@ -343,7 +343,7 @@ const baseline = {
     shell_foot,
   ]],
   tasks: ["div", {"className":"dra-root","data-theme":"dark"}, [
-    ["style", {"key":"dra-css"}, ["77e7f6555e301dc69158f8ce172550a6898cb5e497847d2067622c597ea564f9"]],
+    ["style", {"key":"dra-css"}, ["1c0c7af62bff68cea7875ac1baf81bada3d1916764e4a791bc75d1e3847c1dce"]],
     shell_head,
     ["nav", {"className":"dra-shell-nav","aria-label":"主要屏幕"}, [
       ["div", {"className":"dra-tablist","role":"tablist","aria-label":"主要屏幕","onKeyDown":"function:754c6a834ecd5b3c6d6dbdfcd5dbb70ad2c4609a62c20461e6fdd35acc7e4260"}, [
@@ -467,7 +467,7 @@ const baseline = {
     shell_foot,
   ]],
   bots: ["div", {"className":"dra-root","data-theme":"dark"}, [
-    ["style", {"key":"dra-css"}, ["77e7f6555e301dc69158f8ce172550a6898cb5e497847d2067622c597ea564f9"]],
+    ["style", {"key":"dra-css"}, ["1c0c7af62bff68cea7875ac1baf81bada3d1916764e4a791bc75d1e3847c1dce"]],
     shell_head,
     ["nav", {"className":"dra-shell-nav","aria-label":"主要屏幕"}, [
       ["div", {"className":"dra-tablist","role":"tablist","aria-label":"主要屏幕","onKeyDown":"function:754c6a834ecd5b3c6d6dbdfcd5dbb70ad2c4609a62c20461e6fdd35acc7e4260"}, [
@@ -513,7 +513,7 @@ const baseline = {
     shell_foot,
   ]],
   models: ["div", {"className":"dra-root","data-theme":"dark"}, [
-    ["style", {"key":"dra-css"}, ["77e7f6555e301dc69158f8ce172550a6898cb5e497847d2067622c597ea564f9"]],
+    ["style", {"key":"dra-css"}, ["1c0c7af62bff68cea7875ac1baf81bada3d1916764e4a791bc75d1e3847c1dce"]],
     shell_head,
     ["nav", {"className":"dra-shell-nav","aria-label":"主要屏幕"}, [
       ["div", {"className":"dra-tablist","role":"tablist","aria-label":"主要屏幕","onKeyDown":"function:754c6a834ecd5b3c6d6dbdfcd5dbb70ad2c4609a62c20461e6fdd35acc7e4260"}, [
@@ -538,7 +538,7 @@ const baseline = {
     shell_foot,
   ]],
   memory: ["div", {"className":"dra-root","data-theme":"dark"}, [
-    ["style", {"key":"dra-css"}, ["77e7f6555e301dc69158f8ce172550a6898cb5e497847d2067622c597ea564f9"]],
+    ["style", {"key":"dra-css"}, ["1c0c7af62bff68cea7875ac1baf81bada3d1916764e4a791bc75d1e3847c1dce"]],
     shell_head,
     ["nav", {"className":"dra-shell-nav","aria-label":"主要屏幕"}, [
       ["div", {"className":"dra-tablist","role":"tablist","aria-label":"主要屏幕","onKeyDown":"function:754c6a834ecd5b3c6d6dbdfcd5dbb70ad2c4609a62c20461e6fdd35acc7e4260"}, [
