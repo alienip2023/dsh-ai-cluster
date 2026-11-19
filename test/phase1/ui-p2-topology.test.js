@@ -178,3 +178,26 @@ test('empty states', () => {
 test('P2_SCREENS still has exactly the five existing ids', () => {
   assert.deepEqual(Array.from(P.P2_SCREENS, (e) => e[0]), ['computers', 'tasks', 'bots', 'models', 'memory'])
 })
+
+test('TOPO-RAF-1: startTopologyLoop binds raf/cancel to the host global', () => {
+  // loadPlugin runs client.js in a separate VM realm.
+  const hostGlobal = P.startTopologyLoop.constructor('return globalThis')()
+  const seen = []
+  let frame
+  const raf = function (cb) {
+    if (this !== hostGlobal) throw new TypeError('Illegal invocation')
+    frame = cb
+    seen.push('raf')
+    return 10 + seen.length
+  }
+  const cancel = function (id) {
+    if (this !== hostGlobal) throw new TypeError('Illegal invocation')
+    seen.push('cancel:' + id)
+  }
+  let ticks = 0
+  const stop = P.startTopologyLoop({ reduced: false, raf, cancel, onTick() { ticks += 1 } })
+  frame(0)
+  assert.equal(ticks, 1)
+  stop()
+  assert.deepEqual(seen, ['raf', 'raf', 'cancel:12'])
+})
