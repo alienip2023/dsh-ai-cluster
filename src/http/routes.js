@@ -92,6 +92,7 @@ import { encodePairCode } from '../trust/index.js'
 // 视图投影共享层：工具路径与 UI 路径用**同一份**白名单，
 // 不让任一方绕开投影（见下方「视图投影」段的说明）。
 import {
+  frameRttView,
   handoffView,
   nodeView,
   summarizeTransportModes,
@@ -501,6 +502,8 @@ export function registerUiRoutes({
       reposAt: n.reposAt,
       transportMode: n.transportMode,
       connectivity: n.connectivity,
+      frameRttMs: n.frameRttMs,
+      confirm: n.confirm,
       peerCapable: n.peerCapable,
       runnerKind: n.runnerKind,
       defaultModel: n.defaultModel,
@@ -751,6 +754,8 @@ export function registerUiRoutes({
           starved: q.starved === true,
         } : null,
         transportMode,
+        frameRttMs: frameRttView(n),
+        confirm: n.confirm === 'confirmed' || n.confirm === 'unknown' ? n.confirm : undefined,
       }
     })
     writeJson(res, 200, { ok: true, heartbeatMs, nodes })
