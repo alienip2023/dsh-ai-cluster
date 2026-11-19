@@ -275,8 +275,8 @@ test('AC-2 criterion 9: caller matrix rejects scoped bypasses and the whole batc
 test('AC-2 criterion 11: protocol and client pin, no admission fields in a scoped frame', async t => {
   const h = await setup(t)
   assert.equal(m.PROTOCOL_VERSION, 1)
-  assert.equal(hash(readFileSync(path.join(root, 'lib/client.js'))), '674a948347e0a0857737650075b595695777a331dec57e44f42de468e2bf211e')
-  assert.equal(JSON.parse(readFileSync(path.join(root, 'package.json'))).version, '0.4.0')
+  assert.equal(hash(readFileSync(path.join(root, 'lib/client.js'))), '0ee18f41525850fd217c3d593ec9163d911d9bdd6d9be6333b68acbc4322d8bd')
+  assert.equal(JSON.parse(readFileSync(path.join(root, 'package.json'))).version, '0.4.1')
   const result = await h.tool()
   assert.equal(h.frames.length, 1)
   const [wire] = h.frames
