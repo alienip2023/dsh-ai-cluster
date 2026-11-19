@@ -8,7 +8,7 @@ import path from 'node:path'
 
 const baseline = '58052c9cdb2e2c8ab7058837e8176996a6532f3a'
 // The T-ISO-2 test uses git diff. Pin the bytes from the AC-1 baseline (after A2).
-const clientHash = '41a8353096721c556fa15455e5dae25b35aae9048186f619ac6ba68e0b8707d8'
+const clientHash = '674a948347e0a0857737650075b595695777a331dec57e44f42de468e2bf211e'
 const srcFiles = ['src/compat/dual-provide.js', 'src/compat/ra-names.js']
 const ticketFiles = ['identity.js', 'index.js', 'ledger-file.js', 'snapshot.js', 'store.js']
 const registerTest = 'test/phase1/tool-alias-register.test.js'
@@ -160,7 +160,7 @@ try {
   const p0 = { sha256: sha256(client), expected: clientHash, greps: {
     'memory-hub-scopes': grep(client.toString(), 'memory-hub-scopes'),
     '尚未上报模型': grep(client.toString(), '尚未上报模型'),
-    '"version": "0.3.0"': grep(read(C, 'package.json'), '"version": "0.3.0"'),
+    '"version": "0.4.0"': grep(read(C, 'package.json'), '"version": "0.4.0"'),
   } }
 
   const before = generatedFiles()
@@ -192,7 +192,7 @@ try {
     2: { source: 'artifact-proven', pass: missing.length === 0 && unexpected.length === 0, shipped, missing, unexpected },
     3: { source: 'repo-proven', pass: !buildError && drift.length === 0, build, before: before.size, after: after.size, drift,
       ...(buildError && { buildError }) },
-    4: { source: 'artifact-proven', pass: p0.sha256 === clientHash && pkg.version === '0.3.0' && Object.values(p0.greps).every(Boolean), ...p0 },
+    4: { source: 'artifact-proven', pass: p0.sha256 === clientHash && pkg.version === '0.4.0' && Object.values(p0.greps).every(Boolean), ...p0 },
     5: { source: 'repo-proven', pass: candidate.status === 0 && reference.status === 0 && outputMatches,
       baseline, reference, candidate, outputMatches },
   }
