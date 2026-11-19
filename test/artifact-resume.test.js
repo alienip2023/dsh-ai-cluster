@@ -428,3 +428,187 @@ test('resumeKeyOf：同一 (dest, relPath) 稳定、分隔符写法归一后一�
   assert.notEqual(resumeKeyOf(dest, 'a.txt'), resumeKeyOf(dest, 'b.txt'))
   assert.notEqual(resumeKeyOf(dest, 'a.txt'), resumeKeyOf(path.join(dest, 'x'), 'a.txt'))
 })
+
+/* ══════════════════ resume rejection diagnostics and publish boundary ══════════════════ */
+
+const DIAG_PATH = 'private-artifact.txt'
+const DIAG_PREFIX = FULL.slice(0, 5)
+const DIAG_TTL = 5_000
+const DIAG_OTHER_PATH = 'other-private-artifact.txt'
+const DIAG_OTHER_SHA = sha('other artifact')
+const DIAG_TAMPERED = 'Hello'
+
+async function interruptedPull(t, { partialTtlMs = DIAG_TTL, log } = {}) {
+  const dest = tmpdir()
+  const registry = stubRegistry()
+  const records = []
+  const pulls = new PullManager({
+    registry,
+    limits: { maxPullBytes: 1024, partialTtlMs },
+    log(level, message, ctx) {
+      records.push({ level, message, ctx })
+      log?.(level, message, ctx)
+    },
+  })
+  t.after(() => {
+    for (const pullId of pulls.sessions.keys()) pulls.cancel(pullId)
+    fs.rmSync(dest, { recursive: true, force: true })
+  })
+
+  const args = {
+    nodeId: 'n1', taskId: 't1', relPath: DIAG_PATH, dest,
+    manifest: { final: [{ path: DIAG_PATH, sha256: FULL_SHA, bytes: FULL.length }] },
+  }
+  const send = registry.send
+  function start() {
+    const { promise: sent, resolve } = Promise.withResolvers()
+    registry.send = (nodeId, type, payload) => {
+      if (type === HUB_TO_NODE.ARTIFACT_PULL) resolve(payload)
+      return send(nodeId, type, payload)
+    }
+    const result = pulls.pull(args)
+    return { result, sent: Promise.race([sent, result]) }
+  }
+
+  const first = start()
+  const { pullId } = await first.sent
+  pulls.ingestBinary(chunkHeader(pullId, 0, { sha256: FULL_SHA, total: FULL.length }), Buffer.from(DIAG_PREFIX))
+  pulls.onNodeOffline('n1')
+  await assert.rejects(first.result, /node offline/)
+
+  const { part, meta } = resumeFiles(dest)
+  assert.equal(fs.readFileSync(part, 'utf8'), DIAG_PREFIX)
+  assert.ok(fs.existsSync(meta))
+  records.length = 0 // Observe the second pull independently of first-pull diagnostics.
+  return { dest, part, meta, records, pulls, start, finalPath: path.join(dest, DIAG_PATH) }
+}
+
+function editResumeMeta(file, key, value) {
+  const meta = JSON.parse(fs.readFileSync(file, 'utf8'))
+  meta[key] = value
+  fs.writeFileSync(file, JSON.stringify(meta))
+}
+
+const rejections = (records) => records.filter(({ message }) => message === 'artifact resume rejected')
+
+function assertByteZero(fixture, sent, message) {
+  assert.equal(sent.startOffset, 0, message)
+  assert.equal(fixture.pulls.sessions.get(sent.pullId).received, 0, message)
+}
+
+function assertDiscarded(fixture) {
+  assert.equal(fs.existsSync(fixture.part), false, 'old partial must be removed')
+  assert.equal(fs.existsSync(fixture.meta), false, 'old sidecar must be removed')
+}
+
+const rejectionCases = [
+  ['MP2-R1 version', 'version', ({ meta }) => editResumeMeta(meta, 'v', 2)],
+  ['MP2-R2 relpath', 'relpath', ({ meta }) => editResumeMeta(meta, 'relPath', DIAG_OTHER_PATH)],
+  ['MP2-R3 whole-hash', 'whole-hash', ({ meta }) => editResumeMeta(meta, 'sha256', DIAG_OTHER_SHA),
+    'MP2-R3 whole-hash: mismatched sidecar sha256 must be rejected'],
+  ['MP2-R4 byte-count', 'byte-count', ({ meta }) => editResumeMeta(meta, 'bytes', 0)],
+  ['MP2-R5 ttl', 'ttl', ({ meta }) => editResumeMeta(meta, 'updatedAt', Date.now() - DIAG_TTL - 1),
+    'MP2-R5 ttl: expired partial must be discarded and restart at 0'],
+  ['MP2-R6 prefix-hash', 'prefix-hash', ({ part }) => fs.writeFileSync(part, DIAG_TAMPERED),
+    'MP2-R6 prefix-hash: rejected prefix must restart from byte zero'],
+  ['MP2-R7 absent sidecar', 'sidecar-unreadable', ({ meta }) => fs.unlinkSync(meta)],
+]
+
+for (const [title, reason, tamper, message = `${title}: rejected partial must restart from byte zero`] of rejectionCases) {
+  test(title, async (t) => {
+    const fixture = await interruptedPull(t)
+    tamper(fixture)
+    const retry = fixture.start()
+    const sent = await retry.sent
+
+    assertByteZero(fixture, sent, message)
+    assertDiscarded(fixture)
+    const diagnostics = rejections(fixture.records)
+    assert.deepEqual(diagnostics, [{
+      level: 'warn', message: 'artifact resume rejected',
+      ctx: { pullId: sent.pullId, reason, decision: 'probeResume' },
+    }], message)
+    for (const forbidden of [fixture.dest, DIAG_PATH, DIAG_OTHER_PATH, FULL_SHA, DIAG_OTHER_SHA,
+      sha(DIAG_PREFIX), FULL, DIAG_PREFIX, DIAG_TAMPERED]) {
+      assert.equal(JSON.stringify(diagnostics[0]).includes(forbidden), false, 'diagnostic leaked fixture content')
+    }
+  })
+}
+
+test('MP2-R8 no diagnostic when resume disabled (ttl=0)', async (t) => {
+  const fixture = await interruptedPull(t, { partialTtlMs: 0 })
+  const oldMeta = fs.readFileSync(fixture.meta, 'utf8')
+  const sent = await fixture.start().sent
+  assertByteZero(fixture, sent)
+  assert.deepEqual(rejections(fixture.records), [])
+  assert.equal(fs.readFileSync(fixture.part, 'utf8'), DIAG_PREFIX)
+  assert.equal(fs.readFileSync(fixture.meta, 'utf8'), oldMeta)
+})
+
+test('MP2-R9 logger throws -> same startOffset', async (t) => {
+  const fixture = await interruptedPull(t, {
+    log(_level, message) {
+      if (message === 'artifact resume rejected') throw new Error('logger unavailable')
+    },
+  })
+  editResumeMeta(fixture.meta, 'v', 2)
+  const sent = await fixture.start().sent
+  assertByteZero(fixture, sent)
+  assertDiscarded(fixture)
+  assert.deepEqual(rejections(fixture.records).map(({ ctx }) => ctx), [
+    { pullId: sent.pullId, reason: 'version', decision: 'probeResume' },
+  ])
+})
+
+async function resumeThroughLastChunk(fixture) {
+  const retry = fixture.start()
+  const { pullId, startOffset } = await retry.sent
+  assert.equal(startOffset, DIAG_PREFIX.length)
+  assert.equal(fixture.pulls.sessions.get(pullId).received, DIAG_PREFIX.length)
+  fixture.pulls.ingestBinary(chunkHeader(pullId, startOffset, { sha256: FULL_SHA, total: FULL.length }),
+    Buffer.from(FULL.slice(startOffset)))
+  const done = { t: 'artifact/done', pullId, bytes: FULL.length, sha256: FULL_SHA, expected: FULL_SHA }
+  return { result: retry.result, done }
+}
+
+test('MP2-A1 atomic publish after resume', async (t) => {
+  const fixture = await interruptedPull(t)
+  const { result, done } = await resumeThroughLastChunk(fixture)
+  const message = 'MP2-A1: destination must not exist before atomic rename'
+  assert.equal(fs.existsSync(fixture.finalPath), false, message)
+  assert.equal(fs.readFileSync(fixture.part, 'utf8'), FULL)
+  assert.ok(fs.existsSync(fixture.meta))
+
+  const rename = fs.renameSync
+  const beforeRename = []
+  t.mock.method(fs, 'renameSync', (source, destination) => {
+    if (source === fixture.part && destination === fixture.finalPath) {
+      beforeRename.push(fs.existsSync(destination))
+    }
+    return rename(source, destination)
+  })
+  fixture.pulls.ingestDone(done)
+  assert.equal((await result).dest, fixture.finalPath)
+  assert.equal(fs.readFileSync(fixture.finalPath, 'utf8'), FULL)
+  assert.deepEqual(beforeRename, [false], message)
+  assertDiscarded(fixture)
+})
+
+test('MP2-H1 node-side hash verification failure', async (t) => {
+  const fixture = await interruptedPull(t)
+  const { result, done } = await resumeThroughLastChunk(fixture)
+  fixture.pulls.ingestDone({ ...done, verified: false })
+  await assert.rejects(result, { code: 'hash-mismatch', message: 'node-side hash verification failed' },
+    'MP2-H1: unverified digest must not publish')
+  assert.equal(fs.existsSync(fixture.finalPath), false, 'MP2-H1: unverified digest must not publish')
+  assert.deepEqual(rejections(fixture.records), [])
+})
+
+test('MP2-H2 size mismatch', async (t) => {
+  const fixture = await interruptedPull(t)
+  const { result, done } = await resumeThroughLastChunk(fixture)
+  fixture.pulls.ingestDone({ ...done, bytes: FULL.length + 1 })
+  await assert.rejects(result, { code: 'hash-mismatch', message: /^size-mismatch: declared/ })
+  assert.equal(fs.existsSync(fixture.finalPath), false)
+  assert.deepEqual(rejections(fixture.records), [])
+})
