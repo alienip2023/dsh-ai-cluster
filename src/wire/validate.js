@@ -700,6 +700,51 @@ export function validateJobsFrame(d) {
 }
 
 /**
+ * 校验 node/model-sync（hub → node 的模型同步帧）。
+ * scope='default' 只带 modelRef；'bot' 带 modelRef + botId；'all' 带 modelRef。
+ * effort 可选。旧节点（无此 case）按未知帧忽略，不回 result；hub 超时后标「不支持」。
+ * @returns {{ok:true, sync:object} | {ok:false, error:string}}
+ */
+export function validateModelSync(d) {
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return { ok: false, error: 'model-sync-missing' }
+  const nodeId = requiredTurnId(d.nodeId, 'model-sync-nodeId-missing')
+  if (!nodeId.ok) return nodeId
+  const requestId = requiredTurnId(d.requestId, 'model-sync-requestId-missing')
+  if (!requestId.ok) return requestId
+  const SCOPES = new Set(['default', 'bot', 'all'])
+  if (typeof d.scope !== 'string' || !SCOPES.has(d.scope)) return { ok: false, error: 'model-sync-scope-invalid' }
+  if (typeof d.modelRef !== 'string' || d.modelRef.trim() === '') return { ok: false, error: 'model-sync-modelRef-missing' }
+  const modelRef = d.modelRef.trim().slice(0, 256)
+  if (d.scope === 'bot') {
+    if (typeof d.botId !== 'string' || d.botId.trim() === '') return { ok: false, error: 'model-sync-botId-missing' }
+  }
+  const effort = typeof d.effort === 'string' && d.effort.trim() !== '' ? d.effort.trim().slice(0, 64) : undefined
+  const botId = d.scope === 'bot' ? d.botId.trim().slice(0, 256) : undefined
+  return { ok: true, sync: { nodeId: nodeId.value, requestId: requestId.value, scope: d.scope, modelRef, ...(botId !== undefined ? { botId } : {}), ...(effort !== undefined ? { effort } : {}) } }
+}
+
+/**
+ * 校验 node/model-sync-result（node → hub 的模型同步回执）。
+ * @returns {{ok:true, result:object} | {ok:false, error:string}}
+ */
+export function validateModelSyncResult(d) {
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return { ok: false, error: 'model-sync-result-missing' }
+  const requestId = requiredTurnId(d.requestId, 'model-sync-result-requestId-missing')
+  if (!requestId.ok) return requestId
+  if (typeof d.ok !== 'boolean') return { ok: false, error: 'model-sync-result-ok-missing' }
+  return {
+    ok: true,
+    result: {
+      requestId: requestId.value,
+      nodeId: stringOrNull(d.nodeId),
+      ok: d.ok,
+      applied: Array.isArray(d.applied) ? d.applied.map(s => String(s).slice(0, 256)).slice(0, 64) : [],
+      error: stringOrNull(d.error),
+    },
+  }
+}
+
+/**
  * 校验 node/config-result（node → hub 的并发上限回执）。
  * @returns {{ok:true, result:object} | {ok:false, error:string}}
  */
@@ -723,6 +768,82 @@ export function validateNodeConfigResult(d) {
   }
 }
 
+
+/**
+ * 校验 node/approval-request（node → hub）：ds-bot 把待批工具调用中继给主控。
+ * 载荷 { approvalId, nodeId, botId, roomId?, tool, reason, detail:{text?,code?}, at, fingerprint }。
+ * @returns {{ok:true, req:object} | {ok:false, error:string}}
+ */
+export function validateApprovalRequest(d) {
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return { ok: false, error: 'approval-request-missing' }
+  for (const f of ['approvalId', 'nodeId', 'botId', 'tool', 'fingerprint']) {
+    if (typeof d[f] !== 'string' || d[f].trim() === '') return { ok: false, error: `approval-request-${f}-missing` }
+  }
+  if (!Number.isFinite(d.at)) return { ok: false, error: 'approval-request-at-missing' }
+  const detail = d.detail && typeof d.detail === 'object' && !Array.isArray(d.detail) ? d.detail : {}
+  return {
+    ok: true,
+    req: {
+      approvalId: String(d.approvalId).trim().slice(0, 128),
+      nodeId: String(d.nodeId).trim().slice(0, 64),
+      botId: String(d.botId).trim().slice(0, 128),
+      roomId: typeof d.roomId === 'string' && d.roomId.trim() !== '' ? d.roomId.trim().slice(0, 128) : undefined,
+      tool: String(d.tool).trim().slice(0, 128),
+      reason: typeof d.reason === 'string' ? d.reason.slice(0, 500) : '',
+      detail: {
+        text: typeof detail.text === 'string' ? detail.text.slice(0, 2000) : undefined,
+        code: typeof detail.code === 'string' ? detail.code.slice(0, 1000) : undefined,
+      },
+      at: d.at,
+      fingerprint: String(d.fingerprint).slice(0, 128),
+    },
+  }
+}
+
+/**
+ * 校验 hub/approval-answer（hub → node）：主控回传审批结果。
+ * 载荷 { requestId, nodeId, approvalId, choice: 'allow'|'reject'|'cancel' }。
+ * @returns {{ok:true, answer:object} | {ok:false, error:string}}
+ */
+export function validateApprovalAnswer(d) {
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return { ok: false, error: 'approval-answer-missing' }
+  for (const f of ['requestId', 'nodeId', 'approvalId']) {
+    if (typeof d[f] !== 'string' || d[f].trim() === '') return { ok: false, error: `approval-answer-${f}-missing` }
+  }
+  const CHOICES = new Set(['allow', 'reject', 'cancel'])
+  if (!CHOICES.has(d.choice)) return { ok: false, error: 'approval-answer-choice-invalid' }
+  return {
+    ok: true,
+    answer: {
+      requestId: String(d.requestId).trim().slice(0, 128),
+      nodeId: String(d.nodeId).trim().slice(0, 64),
+      approvalId: String(d.approvalId).trim().slice(0, 128),
+      choice: d.choice,
+    },
+  }
+}
+
+/**
+ * 校验 node/approval-settled（node → hub）：通知主控某审批已被其他路径结算。
+ * 载荷 { approvalId, nodeId, outcome }。
+ * @returns {{ok:true, settled:object} | {ok:false, error:string}}
+ */
+export function validateApprovalSettled(d) {
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return { ok: false, error: 'approval-settled-missing' }
+  for (const f of ['approvalId', 'nodeId']) {
+    if (typeof d[f] !== 'string' || d[f].trim() === '') return { ok: false, error: `approval-settled-${f}-missing` }
+  }
+  const OUTCOMES = new Set(['allowed-once', 'rejected', 'cancelled'])
+  if (!OUTCOMES.has(d.outcome)) return { ok: false, error: 'approval-settled-outcome-invalid' }
+  return {
+    ok: true,
+    settled: {
+      approvalId: String(d.approvalId).trim().slice(0, 128),
+      nodeId: String(d.nodeId).trim().slice(0, 64),
+      outcome: d.outcome,
+    },
+  }
+}
 
 /* ─────────────────────────── M4：mem/* 校验器 ─────────────────────────── */
 

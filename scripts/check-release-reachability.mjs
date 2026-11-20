@@ -8,7 +8,7 @@ import path from 'node:path'
 
 const baseline = '58052c9cdb2e2c8ab7058837e8176996a6532f3a'
 // T-ISO-2 and release criterion 4 verify the measured bytes of lib/client.js.
-const clientHash = '4ee8dbf3c23f7fd0366f93638f20bb6ffb30d3fe89323a1b8142c127d6649585'
+const clientHash = '13cc09b108b5b1c22fa4031b84193ebdd949afb63a1cc009ee2a34dbf98d81ac'
 const srcFiles = ['src/compat/dual-provide.js', 'src/compat/ra-names.js']
 const ticketFiles = ['identity.js', 'index.js', 'ledger-file.js', 'snapshot.js', 'store.js']
 const registerTest = 'test/phase1/tool-alias-register.test.js'

@@ -128,7 +128,8 @@ import { validateBotCreate, validateBotUpdate } from '../../lib/protocol.js'
 import { LEGACY_UI_API_PREFIX, UI_API_PREFIX } from './prefix.js'
 import { resolvePullDest } from '../ops/pull.js'
 import { registerDiscoveryRoutes } from '../../lib/hub/ui-routes.js'
-export { LEGACY_UI_API_PREFIX, UI_API_PREFIX, resolvePullDest }
+import { createWebhookStore } from './webhook-store.js'
+export { LEGACY_UI_API_PREFIX, UI_API_PREFIX, resolvePullDest, createWebhookStore }
 
 /** 单次请求体上限：UI 只发小 JSON，超过就是异常。 */
 const MAX_BODY = 256 * 1024
@@ -345,6 +346,9 @@ export function registerUiRoutes({
   uiTemplatesFile,
   admission = null,
   config = {},
+  // P2 Webhook 入站触发：管理器实例（来自 http/webhook-store.js）。
+  // 未提供时 webhook 路由禁用（返回 404），向后兼容旧调用方。
+  webhookStore = null,
   // 可达性自检结论（2026-10-17）：{ bound, origin, loopback, hint }
   // 绑 loopback 时副机永远连不上，而这个失败在主机侧完全静默 ——
   // 面板必须渲染成红色横幅，否则用户只能去猜"地址填错了？token 错了？"
@@ -414,6 +418,13 @@ export function registerUiRoutes({
     sessionGate: config.sessionGate === true,
     // 让面板能提示"改这些要去哪改"
     editHint: '以下配置在 profile 的 cordis.patch.yml 里修改，改完重启 DSH 生效',
+    // P4: 配置文件绝对路径，让面板可以显示「复制路径」按钮，而不是只给文件名。
+    patchFilePath: (() => {
+      try {
+        const sd = typeof config.stateDir === 'string' && config.stateDir !== '' ? config.stateDir : ''
+        return sd !== '' ? path.join(sd, 'cordis.patch.yml') : ''
+      } catch { return '' }
+    })(),
   })
 
   /**
@@ -891,6 +902,46 @@ export function registerUiRoutes({
     let view = null
     try { view = admission?.ticketView?.() ?? null } catch { /* unavailable */ }
     writeJson(res, 200, { tickets: view })
+  })
+
+  // ── 目标系统面板（/goals）────────────────────────────────────────
+  // 聚合所有在线节点上 ds-bot 的 Goal 状态（通过 registry 的 rosterList/goalView
+  // 拿到每个节点报上来的 goals，hub 只做透传聚合，不保本地副本）。
+  // GET /goals → { goals: [{ nodeId, botId, roomId, goal, idle, lastAt }] }
+  routeBoth('/goals', (req, res) => {
+    if (req.method !== 'GET') return writeJson(res, 405, { error: 'method' })
+    const goals = []
+    try {
+      const nodes = registry.nodeList?.() ?? [...(registry.nodes?.values() ?? [])]
+      for (const rec of nodes) {
+        if (!rec || !rec.online) continue
+        const nodeId = rec.nodeId
+        const roster = rec.roster
+        if (!roster || !Array.isArray(roster.bots)) continue
+        for (const bot of roster.bots) {
+          if (!bot || typeof bot.id !== 'string') continue
+          if (Array.isArray(bot.goals) && bot.goals.length > 0) {
+            for (const g of bot.goals) {
+              goals.push({ nodeId, botId: bot.id, botName: bot.name ?? bot.id, roomId: g.roomId ?? null, goal: g.goal ?? '', idle: g.idle === true, lastAt: g.lastAt ?? null })
+            }
+          } else if (bot.goal) {
+            goals.push({ nodeId, botId: bot.id, botName: bot.name ?? bot.id, roomId: bot.roomId ?? null, goal: bot.goal, idle: bot.goalIdle === true, lastAt: bot.goalLastAt ?? null })
+          }
+        }
+      }
+    } catch { /* registry unavailable */ }
+    writeJson(res, 200, { goals })
+  })
+
+  // ── Bot 间通信审计日志 ─────────────────────────────────────────
+  routeBoth('/bot-audit', (req, res) => {
+    if (req.method !== 'GET') return writeJson(res, 405, { error: 'method' })
+    let entries = []
+    try {
+      const getLog = ctx?.get?.('ai-cluster:bot-audit-log', false) ?? ctx?.get?.('remote-agent:bot-audit-log', false)
+      if (typeof getLog === 'function') entries = getLog()
+    } catch { /* non-fatal */ }
+    writeJson(res, 200, { entries })
   })
 
   // ── 单任务详情（含 handoff 卡片） ─────────────────────────────
@@ -1865,6 +1916,80 @@ export function registerUiRoutes({
       writeJson(res, 500, { error: 'write-failed', message: String(err && err.message || err) })
     }
   })
+
+  // ── P2 Webhook 入站触发 ──────────────────────────────────────────────────────
+  //
+  // POST /api/ai-cluster/ui/webhook/:token        触发 webhook（外部调用，无 guard）
+  // GET  /api/ai-cluster/ui/webhooks             列出全部 webhook（面板，requireAuth）
+  // POST /api/ai-cluster/ui/webhooks             创建 webhook（面板，requireAuth）
+  // POST /api/ai-cluster/ui/webhooks/:id/delete  删除 webhook（面板，requireAuth）
+  //
+  // 触发路由不走 guard（外部 curl/服务可以不带 DSH cookie），
+  // 安全由 token 自身保证（32 字符 url-safe 随机，常量时间比较）。
+  if (webhookStore !== null) {
+    // 触发端点：外部入站，不要求同源
+    for (const prefix of [UI_API_PREFIX, LEGACY_UI_API_PREFIX]) {
+      const fireBase = `${prefix}/webhook/`
+      try {
+        disposers.push(ctx.webServer.register({
+          kind: 'prefix',
+          path: fireBase,
+          handler: async (req, res) => {
+            if (req.method !== 'POST') return writeJson(res, 405, { error: 'method' })
+            const token = decodeURIComponent((req.url ?? '').slice(fireBase.length).split('?')[0])
+            const body = await readJson(req)
+            const text = typeof body?.text === 'string' ? body.text : ''
+            const result = webhookStore.fire(token, text)
+            if (result.ok) return writeJson(res, 200, result)
+            const status = result.error === 'webhook-token-invalid' ? 401
+              : result.error === 'webhook-node-offline' ? 503 : 400
+            return writeJson(res, status, result)
+          },
+        }))
+        registeredCount += 1
+      } catch (err) {
+        failedCount += 1
+        log('error', 'webhook fire route registration failed', { error: shortMessage(err) })
+      }
+    }
+
+    // 管理端点：面板调用，requireAuth
+    routeBoth('/webhooks', async (req, res) => {
+      if (req.method === 'GET') {
+        return writeJson(res, 200, { ok: true, webhooks: webhookStore.list() })
+      }
+      if (req.method !== 'POST') return writeJson(res, 405, { error: 'method' })
+      const body = await readJson(req)
+      if (!body) return writeJson(res, 400, { ok: false, error: 'bad-body' })
+      const result = webhookStore.create({ nodeId: body.nodeId, botId: body.botId, name: body.name })
+      if (result.error) return writeJson(res, 400, { ok: false, error: result.error })
+      return writeJson(res, 200, { ok: true, ...result })
+    }, true)
+
+    // 删除端点：/webhooks/<id>/delete（避免 DELETE 方法跨浏览器问题）
+    for (const prefix of [UI_API_PREFIX, LEGACY_UI_API_PREFIX]) {
+      const deleteBase = `${prefix}/webhooks/`
+      try {
+        disposers.push(ctx.webServer.register({
+          kind: 'prefix',
+          path: deleteBase,
+          handler: async (req, res) => {
+            const guard = guardRequest.bind(null, true)
+            if (!guard(req, res, deleteBase)) return
+            if (req.method !== 'POST') return writeJson(res, 405, { error: 'method' })
+            const id = decodeURIComponent((req.url ?? '').slice(deleteBase.length).split('/')[0])
+            if (!id) return writeJson(res, 400, { ok: false, error: 'webhook-id-missing' })
+            const removed = webhookStore.remove(id)
+            return writeJson(res, 200, { ok: removed, ...(removed ? {} : { error: 'webhook-not-found' }) })
+          },
+        }))
+        registeredCount += 1
+      } catch (err) {
+        failedCount += 1
+        log('error', 'webhook delete route registration failed', { error: shortMessage(err) })
+      }
+    }
+  }
 
   // 注册结果汇总。**必须打** —— 路由注册失败是静默致命的（面板只看到 404/401，
   // 而宿主启动日志里什么都没有）。有了这一行，排查时一眼能看出"注册了几条、

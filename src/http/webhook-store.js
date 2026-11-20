@@ -1,0 +1,142 @@
+// P2 Webhook 入站触发：外部 HTTP 事件唤醒指定 bot。
+//
+// 设计：
+//   - 每个 webhook 绑定一个 (nodeId, botId) 目标，带一个不可猜的 token。
+//   - token 是 url-safe 随机串；store 只存 sha256(token)，不存明文。
+//   - 命中后通过 registry.startBotTurn 把消息发到目标 bot，复用现有 bot/turn 路径。
+//   - store 落盘到 stateDir/webhooks.json，原子写（tmp → rename）。
+//   - 一个 store 实例对应一个 hub；node 侧不持有 webhook（webhook 只在 hub 上）。
+import { randomBytes, createHash, timingSafeEqual } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
+import { join } from 'node:path'
+
+const TOKEN_BYTES = 24 // 192 bit，url-safe base64 ≈ 32 字符
+const MAX_WEBHOOKS = 256
+const TEXT_MAX = 8000
+
+/** 生成不可猜的 url-safe token。只调用方见明文；store 只存 hash。 */
+export function generateWebhookToken() {
+  return randomBytes(TOKEN_BYTES).toString('base64url')
+}
+
+function hashToken(token) {
+  return createHash('sha256').update(String(token)).digest('hex')
+}
+
+/** 常量时间比较，防时序侧信道。 */
+function safeEqual(a, b) {
+  const ba = Buffer.from(String(a))
+  const bb = Buffer.from(String(b))
+  if (ba.length !== bb.length) return false
+  return timingSafeEqual(ba, bb)
+}
+
+/**
+ * 创建一个 webhook store。
+ * @param {object} opts
+ * @param {string} opts.stateDir 落盘目录
+ * @param {object} opts.registry hub 节点注册表（用于 startBotTurn）
+ * @param {function} [opts.log] 日志函数
+ */
+export function createWebhookStore({ stateDir, registry, log = () => {} }) {
+  const file = join(stateDir, 'webhooks.json')
+  let entries = [] // [{ id, tokenHash, nodeId, botId, name, createdAt, lastFiredAt, fireCount }]
+
+  function load() {
+    try {
+      if (!existsSync(file)) return
+      const data = JSON.parse(readFileSync(file, 'utf8'))
+      if (Array.isArray(data?.webhooks)) entries = data.webhooks.slice(0, MAX_WEBHOOKS)
+    } catch (err) {
+      log('warn', 'webhook store load failed', { error: String(err?.message ?? err) })
+    }
+  }
+
+  function persist() {
+    try {
+      mkdirSync(stateDir, { recursive: true })
+      const tmp = `${file}.tmp.${process.pid}`
+      writeFileSync(tmp, JSON.stringify({ webhooks: entries }, null, 2))
+      renameSync(tmp, file)
+    } catch (err) {
+      log('warn', 'webhook store persist failed', { error: String(err?.message ?? err) })
+    }
+  }
+
+  load()
+
+  /** 列出全部 webhook（不含 token hash，只给面板看元数据）。 */
+  function list() {
+    return entries.map(e => ({
+      id: e.id,
+      nodeId: e.nodeId,
+      botId: e.botId,
+      name: e.name,
+      createdAt: e.createdAt,
+      lastFiredAt: e.lastFiredAt ?? null,
+      fireCount: e.fireCount ?? 0,
+    }))
+  }
+
+  /**
+   * 创建一个 webhook。返回明文 token（唯一一次见到明文的机会）。
+   * @returns {{ id, token, nodeId, botId, name } | { error }}
+   */
+  function create({ nodeId, botId, name }) {
+    if (typeof nodeId !== 'string' || nodeId.trim() === '') return { error: 'webhook-nodeId-missing' }
+    if (typeof botId !== 'string' || botId.trim() === '') return { error: 'webhook-botId-missing' }
+    if (entries.length >= MAX_WEBHOOKS) return { error: 'webhook-limit-reached' }
+    const token = generateWebhookToken()
+    const entry = {
+      id: `wh_${randomBytes(4).toString('hex')}`,
+      tokenHash: hashToken(token),
+      nodeId: nodeId.trim().slice(0, 128),
+      botId: botId.trim().slice(0, 128),
+      name: typeof name === 'string' ? name.trim().slice(0, 80) : '',
+      createdAt: Date.now(),
+      fireCount: 0,
+    }
+    entries.push(entry)
+    persist()
+    return { id: entry.id, token, nodeId: entry.nodeId, botId: entry.botId, name: entry.name }
+  }
+
+  /** 删除一个 webhook。 */
+  function remove(id) {
+    const before = entries.length
+    entries = entries.filter(e => e.id !== id)
+    if (entries.length !== before) { persist(); return true }
+    return false
+  }
+
+  /**
+   * 处理入站 webhook：校验 token → 派发到目标 bot。
+   * @param {string} token 明文 token（来自 URL path）
+   * @param {string} text 要发给 bot 的消息
+   * @returns {{ ok: true, exchangeId? } | { ok: false, error }}
+   */
+  function fire(token, text) {
+    if (typeof token !== 'string' || token === '') return { ok: false, error: 'webhook-token-missing' }
+    const textValue = typeof text === 'string' ? text : ''
+    if (textValue.trim() === '') return { ok: false, error: 'webhook-text-empty' }
+    if (textValue.length > TEXT_MAX) return { ok: false, error: 'webhook-text-too-long' }
+
+    // 常量时间查找 token
+    const entry = entries.find(e => safeEqual(e.tokenHash, hashToken(token)))
+    if (entry === undefined) return { ok: false, error: 'webhook-token-invalid' }
+
+    if (typeof registry?.startBotTurn !== 'function') return { ok: false, error: 'webhook-registry-missing' }
+    if (!registry.getNode?.(entry.nodeId)) return { ok: false, error: 'webhook-node-offline' }
+
+    const started = registry.startBotTurn(entry.nodeId, entry.botId, textValue)
+    if (!started?.ok) return { ok: false, error: String(started?.error ?? 'webhook-dispatch-failed') }
+
+    entry.lastFiredAt = Date.now()
+    entry.fireCount = (entry.fireCount ?? 0) + 1
+    persist()
+    log('info', 'webhook fired', { id: entry.id, nodeId: entry.nodeId, exchangeId: started.exchangeId })
+    return { ok: true, exchangeId: started.exchangeId }
+  }
+
+  return { list, create, remove, fire }
+}

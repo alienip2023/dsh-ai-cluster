@@ -104,6 +104,16 @@ const E2E_REQUIRED_TYPES = new Set([
   HUB_TO_NODE.BOT_STOP,
   // 并发上限下发：与其它控制帧同口径（帧里带节点身份）。
   HUB_TO_NODE.NODE_CONFIG,
+  // 模型同步：帧里带节点身份与模型 ref，必须加密。
+  HUB_TO_NODE.MODEL_SYNC,
+  // 模型同步回执：加密发送与其它控制面回执同口径。
+  NODE_TO_HUB.MODEL_SYNC_RESULT,
+  // 审批回传：帧里含 Bot 工具调用细节（文件路径/命令），必须加密。
+  NODE_TO_HUB.APPROVAL_REQUEST,
+  // 审批结算通知：同口径加密。
+  NODE_TO_HUB.APPROVAL_SETTLED,
+  // 审批答复（hub → node）：帧里带 Bot 身份与审批结果，必须加密。
+  HUB_TO_NODE.APPROVAL_ANSWER,
   // M2：config-push 携带 apiKey 明文，必须加密。
   HUB_TO_NODE.CONFIG_PUSH,
   // T9a：peer roster 暴露主控的 Bot 名单，必须加密。
