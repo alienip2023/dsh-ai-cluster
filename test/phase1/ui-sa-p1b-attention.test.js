@@ -114,6 +114,7 @@ function withoutDiscoveryCard(tree) {
 // checkout or an environment variable. An explicit pristine client additionally
 // allows the embedded tree to be checked against the pin during verification.
 const tools = ["div", {"className":"dra-tools"}, [
+  ["button", {"type":"button","className":"dra-btn","aria-label":"设置","aria-expanded":false,"onClick":"function:3eafe8cd6a30b708951cd17ab12a73871d9ab7d3cc35f6ced47a3e83012d30fb"}, ["设置"]],
   ["label", {"className":"dra-check","title":"每 8 秒自动刷新"}, [
     ["input", {"type":"checkbox","checked":true,"onChange":"function:1f630a2c2d8692ccb42ca1af3d937be5ee7d7c6a21a282cae73a6717d85fb4c6"}, []],
     ["span", {}, ["自动"]],
