@@ -488,6 +488,16 @@ export function registerUiRoutes({
 
   registerDiscoveryRoutes(routeBoth, { setDiscoveryEnabled, scanDiscovery })
 
+  routeBoth('/assignments', (req, res) => {
+    if (req.method !== 'GET') return writeJson(res, 405, { error: 'method' })
+    const url = new URL(req.url ?? '/', 'http://localhost')
+    const nodeId = url.searchParams.get('node') ?? undefined
+    const rawLimit = url.searchParams.get('limit')
+    const limit = rawLimit === null ? undefined : Number(rawLimit)
+    const assignments = registry.assignmentLedger?.list({ nodeId, limit }) ?? []
+    writeJson(res, 200, { assignments })
+  })
+
   function unavailable(res, screen, reason) {
     return writeJson(res, 200, { ok: false, code: 'not-available', screen, reason })
   }

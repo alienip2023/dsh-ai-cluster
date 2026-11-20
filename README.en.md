@@ -31,15 +31,15 @@ The hub panel has five tabs for computers, assignments, bots, models, and memory
 
 ## 4. Connections and transfers
 
-- The hub keeps per-node incoming and outgoing transfer byte totals. A direction can be absent until bytes have moved in that direction.
-- Node cards show a frame RTT (round-trip time) trend for direct links with samples. Relay links do not display direct-link frame RTT.
+- The hub counts transferred bytes per node. Incoming bytes count accepted artifact chunks, and outgoing bytes count file upload chunks that were sent successfully.
+- Node cards show a frame RTT (round-trip time) trend for direct links with samples.
 - The worker collects connectivity information. When it reads a valid `frpc` local port, it runs a TCP probe against its own `127.0.0.1:<localPort>` to check whether the listener is reachable.
 
 ## 5. Dispatch and assignment ledger
 
 The hub can dispatch `agent` and `exec` tasks. With `remote_task`, `exec` waits for manual approval by default, and `agent` dispatches automatically by default. A manual approval timeout rejects the task.
 
-The assignment ledger keeps the 200 most recent task-end records by default, including task ID, node, status, and timestamps. With a hub state directory configured, it persists across restarts and task-list pruning. The panel API’s `GET /assignments` route can filter by node. The plugin has no daily quota.
+The standalone hub’s assignment ledger keeps the 200 most recent task-end records by default, including task ID, node, status, and timestamps. With a state directory configured, the ledger persists across restarts and task-list pruning. Use `GET /api/ai-cluster/ui/assignments` to filter by node. The legacy prefix `/api/remote-agent/ui/assignments` also works. The plugin has no daily quota.
 
 ## 6. Tool reference (26 tools)
 
@@ -51,7 +51,7 @@ Preview the repair before confirming the write. The repair tool handles issues i
 
 ## 8. External tool checks
 
-The panel checks for local tools and identifies missing ones. You choose the installation source, version, and timing.
+The panel checks for local tools and identifies missing ones. You choose what to install, where to get it, and when to install it.
 
 ## 9. File writes and process diagnostics
 
@@ -69,4 +69,4 @@ Use `remote_agents` to view background agents and `remote_interrupt` to request 
 
 `remote_file` transfers files between authorized directories. The limit is 512 MiB per file, with 256 KiB chunks and SHA256 verification. Uploads require confirmation. If the worker supports desktop capture, you can request a screenshot with `remote_screenshot`.
 
-For configuration and troubleshooting, see the [deployment guide](profiles/README.md) and [known issues](KNOWN-ISSUES.md). See also the [security notes](SECURITY.md), [changelog](CHANGELOG.md), and [MIT license](LICENSE).
+Further reading includes the [deployment guide](profiles/README.md), [known issues](KNOWN-ISSUES.md), [security notes](SECURITY.md), [changelog](CHANGELOG.md), and [MIT license](LICENSE).
