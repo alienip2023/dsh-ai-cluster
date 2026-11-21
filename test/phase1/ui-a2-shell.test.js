@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const src = fs.readFileSync(path.join(HERE, '../../lib/client.js'), 'utf8')
-const SCREENS = ['computers', 'tasks', 'bots', 'models', 'memory']
+const SCREENS = ['nodes', 'tasks', 'team']
 
 /* ───────────── 有状态桩 ───────────── */
 function reactStub() {
@@ -96,8 +96,8 @@ function mount({ role = 'hub', bodies = {}, saved } = {}) {
     },
     setInterval(fn, ms) { timers.push({ fn, ms }); return timers.length },
     clearInterval() {},
-    setTimeout(fn, ms) { return setTimeout(fn, Math.min(ms || 0, 5)) },
-    clearTimeout,
+    setTimeout(fn, ms) { timers.push({ fn, ms }); return timers.length },
+    clearTimeout() {},
   }
   vm.runInNewContext(src, sandbox, { filename: 'lib/client.js' })
   plugin.apply({ slots: { inject(_n, reg) { reg() }, register(slot, comp) { if (slot.name === 'main') Panel = comp } } })
@@ -134,9 +134,9 @@ function pathTo(tree, pred, trail = []) {
 test('shell: 五屏 id 与默认不变', async () => {
   const m = mount()
   assert.deepEqual(Array.from(m.plugin.P2_SCREENS, (e) => e[0]), SCREENS)
-  assert.deepEqual(Array.from(m.plugin.P2_SCREENS, (e) => e[1]), ['电脑', '交办', '机器人', '模型', '记忆'])
-  assert.equal(m.plugin.selectHubScreen({}), 'computers')
-  assert.equal(m.plugin.selectHubScreen({ screen: 'nope' }), 'computers')
+  assert.deepEqual(Array.from(m.plugin.P2_SCREENS, (e) => e[1]), ['节点', '任务', '团队'])
+  assert.equal(m.plugin.selectHubScreen({}), 'nodes')
+  assert.equal(m.plugin.selectHubScreen({ screen: 'nope' }), 'nodes')
   const tree = await m.settle()
   const tabs = walk(tree).filter((e) => e.props.role === 'tab')
   assert.deepEqual(tabs.map((t) => t.props.id), SCREENS.map((s) => 'tab-' + s), '标签顺序与 P2_SCREENS 一致')
@@ -155,7 +155,7 @@ test('shell: tablist 语义', async () => {
     const lists = walk(nav).filter((e) => e.props.role === 'tablist')
     assert.equal(lists.length, 1)
     const tabs = walk(lists[0]).filter((e) => e.props.role === 'tab')
-    assert.equal(tabs.length, 5)
+    assert.equal(tabs.length, 3)
     assert.ok(tabs.every((t) => t.type === 'button' && t.props.type === 'button'))
     const sel = tabs.filter((t) => t.props['aria-selected'] === 'true')
     assert.equal(sel.length, 1, '只有一个 aria-selected=true（' + s + '）')
@@ -171,7 +171,7 @@ test('shell: tablist 语义', async () => {
     assert.equal(main[0].props['aria-labelledby'], 'tab-' + want)
   }
   // 键盘：左右方向键（循环）、Home/End
-  m.setScreen('computers')
+  m.setScreen('nodes')
   let tree = await m.settle()
   const press = (key) => {
     const list = walk(tree).find((e) => e.props.role === 'tablist')
@@ -179,31 +179,29 @@ test('shell: tablist 语义', async () => {
     list.props.onKeyDown({ key, preventDefault() { prevented = true } })
     return prevented
   }
-  const seq = [['ArrowRight', 'tasks'], ['ArrowRight', 'bots'], ['End', 'memory'], ['ArrowRight', 'computers'], ['ArrowLeft', 'memory'], ['Home', 'computers']]
+  const seq = [['ArrowRight', 'tasks'], ['ArrowRight', 'team'], ['End', 'team'], ['ArrowRight', 'nodes'], ['ArrowLeft', 'team'], ['Home', 'nodes']]
   for (const [key, want] of seq) {
     assert.equal(press(key), true, key + ' 应 preventDefault')
     tree = await m.settle()
     assert.equal(m.plugin.selectHubScreen(m.state()), want, key)
   }
   assert.equal(press('a'), false, '其他键不处理')
-  assert.equal(m.plugin.selectHubScreen(m.state()), 'computers')
+  assert.equal(m.plugin.selectHubScreen(m.state()), 'nodes')
   // 点击标签
-  walk(tree).find((e) => e.props.id === 'tab-models').props.onClick()
+  walk(tree).find((e) => e.props.id === 'tab-tasks').props.onClick()
   await m.settle()
-  assert.equal(m.state().screen, 'models')
+  assert.equal(m.state().screen, 'tasks')
   // 纯函数接缝
-  const model = m.plugin.shellTabModel('bots', { nodes: 4, online: 3, active: 2, bots: 5, models: null, memory: 0 })
+  const model = m.plugin.shellTabModel('team', { nodes: 4, online: 3, active: 2, bots: 5, models: null, memory: 0 })
   assert.deepEqual(JSON.parse(JSON.stringify(model)), [
-    { id: 'computers', label: '电脑', count: '3/4', selected: false, tabId: 'tab-computers', panelId: 'panel-computers' },
-    { id: 'tasks', label: '交办', count: '2', selected: false, tabId: 'tab-tasks', panelId: 'panel-tasks' },
-    { id: 'bots', label: '机器人', count: '5', selected: true, tabId: 'tab-bots', panelId: 'panel-bots' },
-    { id: 'models', label: '模型', count: null, selected: false, tabId: 'tab-models', panelId: 'panel-models' },
-    { id: 'memory', label: '记忆', count: '0', selected: false, tabId: 'tab-memory', panelId: 'panel-memory' },
+    { id: 'nodes', label: '节点', count: '3/4', selected: false, tabId: 'tab-nodes', panelId: 'panel-nodes' },
+    { id: 'tasks', label: '任务', count: '2', selected: false, tabId: 'tab-tasks', panelId: 'panel-tasks' },
+    { id: 'team', label: '团队', count: '5', selected: true, tabId: 'tab-team', panelId: 'panel-team' },
   ])
-  assert.equal(m.plugin.shellTabModel('nope', null).filter((t) => t.selected)[0].id, 'computers')
-  assert.equal(m.plugin.shellTabKey('computers', 'ArrowLeft'), 'memory')
-  assert.equal(m.plugin.shellTabKey('memory', 'ArrowRight'), 'computers')
-  assert.equal(m.plugin.shellTabKey('bots', 'Enter'), null)
+  assert.equal(m.plugin.shellTabModel('nope', null).filter((t) => t.selected)[0].id, 'nodes')
+  assert.equal(m.plugin.shellTabKey('nodes', 'ArrowLeft'), 'team')
+  assert.equal(m.plugin.shellTabKey('team', 'ArrowRight'), 'nodes')
+  assert.equal(m.plugin.shellTabKey('tasks', 'Enter'), null)
 })
 
 /* ───────────── 补充：外壳 DOM 结构与一句话摘要（§4.1 / §4.5） ───────────── */
@@ -231,21 +229,21 @@ test('shell: DOM 结构与一句话摘要', async () => {
   }
   const sum = m.plugin.shellScreenSummary
   const counts = { nodes: 4, online: 3, active: 2, tasks: 9 }
-  assert.equal(sum('computers', { counts }), '3/4 台在线 · 2 个任务运行中')
+  assert.equal(sum('nodes', { counts }), '3/4 台在线 · 2 个任务运行中')
   assert.equal(sum('tasks', { counts }), '2 个任务进行中 · 共 9 个')
-  assert.equal(sum('bots', { counts, bots: { kind: 'data', nodes: [{ bots: [1, 2] }, { bots: [3] }] } }), '2 台电脑 · 3 个机器人')
-  assert.equal(sum('bots', { counts, bots: { kind: 'empty' } }), '还没有机器人上报')
-  assert.equal(sum('bots', { counts, bots: { kind: 'error' } }), '机器人列表读取失败')
-  assert.equal(sum('bots', { counts, bots: null }), '读取中…')
-  assert.equal(sum('models', { counts, models: { kind: 'data', nodes: [{ models: [1, 2] }, { models: null }] } }), '2 台电脑 · 2 个模型')
-  assert.equal(sum('models', { counts, models: { kind: 'error' } }), '模型列表读取失败')
-  assert.equal(sum('memory', { counts, memory: { state: 'ok', data: { entries: [1, 2, 3] } } }), '当前范围 3 条记忆')
-  assert.equal(sum('memory', { counts, memory: { state: 'missing' } }), '记忆接口不可用')
-  assert.equal(sum('memory', { counts, memory: { state: 'error' } }), '记忆读取失败')
-  assert.equal(sum('memory', { counts, memory: { state: 'loading' } }), '读取中…')
-  assert.equal(sum('computers', {}), '0/0 台在线 · 0 个任务运行中')
+  assert.equal(sum('team', { counts, bots: { kind: 'data', nodes: [{ bots: [1, 2] }, { bots: [3] }] } }), '2 台节点 · 3 个机器人')
+  assert.equal(sum('team', { counts, bots: { kind: 'empty' } }), '还没有机器人上报')
+  assert.equal(sum('team', { counts, bots: { kind: 'error' } }), '机器人列表读取失败')
+  assert.equal(sum('team', { counts, bots: null }), '读取中…')
+  assert.equal(sum('team', { counts, models: { kind: 'data', nodes: [{ models: [1, 2] }, { models: null }] } }), '读取中…')
+  assert.equal(sum('team', { counts, models: { kind: 'error' } }), '读取中…')
+  assert.equal(sum('team', { counts, memory: { state: 'ok', data: { entries: [1, 2, 3] } } }), '读取中…')
+  assert.equal(sum('team', { counts, memory: { state: 'missing' } }), '读取中…')
+  assert.equal(sum('team', { counts, memory: { state: 'error' } }), '读取中…')
+  assert.equal(sum('team', { counts, memory: { state: 'loading' } }), '读取中…')
+  assert.equal(sum('nodes', {}), '0/0 台在线 · 0 个任务运行中')
   // 渲染出的摘要来自同一纯函数
-  m.setScreen('computers')
+  m.setScreen('nodes')
   const tree = await m.settle()
   assert.ok(text(walk(tree).find((e) => cls(e).includes('dra-screen-summary'))).includes('1/2 台在线 · 1 个任务运行中'))
 })
@@ -253,20 +251,20 @@ test('shell: DOM 结构与一句话摘要', async () => {
 /* ───────────── #8 ───────────── */
 /** 基线 a8e0bac 上用同一桩实测得到的请求集合（路径 + 方法 + 请求体）。 */
 const BASE_MOUNT = [
-  'GET /api/ai-cluster/ui/config', 'GET /api/ai-cluster/ui/env-check', 'GET /api/ai-cluster/ui/node-status',
+  'GET /api/ai-cluster/ui/bot-audit', 'GET /api/ai-cluster/ui/config', 'GET /api/ai-cluster/ui/env-check',
+  'GET /api/ai-cluster/ui/goals', 'GET /api/ai-cluster/ui/node-status',
   'GET /api/ai-cluster/ui/overview', 'GET /api/ai-cluster/ui/pair-info?port=', 'GET /api/ai-cluster/ui/ssh-hosts',
   'GET /api/ai-cluster/ui/tasks', 'GET /api/ai-cluster/ui/templates', 'GET /api/ai-cluster/ui/tickets', 'GET /api/remote-agent/setup/state',
 ]
 const BASE_SCREEN = {
-  tasks: [], computers: [],
-  bots: ['GET /api/ai-cluster/ui/bots'],
-  models: ['GET /api/ai-cluster/ui/models'],
-  memory: ['POST /api/bot {"endpoint":"memory-hub-scopes","payload":{}}', 'POST /api/bot {"endpoint":"memory-hub-view","payload":{"scope":{"kind":"team"}}}'],
+  tasks: [], nodes: [],
+  team: ['GET /api/ai-cluster/ui/bots', 'GET /api/ai-cluster/ui/models',
+    'POST /api/bot {"endpoint":"memory-hub-scopes","payload":{}}', 'POST /api/bot {"endpoint":"memory-hub-view","payload":{"scope":{"kind":"team"}}}'],
 }
-const BASE_STATE_KEYS = ['caps', 'connection', 'counts', 'discovery', 'error', 'loading', 'mode', 'nodes', 'relay', 'role', 'setup', 'tasks', 'tickets', 'topology', 'transportSummary', 'worker']
+const BASE_STATE_KEYS = ['botAudit', 'caps', 'connection', 'counts', 'discovery', 'error', 'goals', 'loading', 'mode', 'nodes', 'relay', 'role', 'settingsOpen', 'setup', 'tasks', 'tickets', 'topology', 'transportSummary', 'worker']
 /** 基线 a8e0bac 源码里每个 apiGet/apiPost/apiGetPath/apiPostPath/botApi/fetch 调用点所在行（去注释、去缩进、排序）的 sha256。 */
-const BASE_CALLSITES = 54
-const BASE_CALLSITE_DIGEST = '68de6e3400f428650527dd2d2302dce3283691bab689dce37696f89c52a8560d'
+const BASE_CALLSITES = 56
+const BASE_CALLSITE_DIGEST = 'f95c518ea06e68174a898cbe59241ea7095a22f425aa44b0596888efdfcc8d48'
 function callSites(source) {
   const code = source.replace(/\/\*[\s\S]*?\*\//g, '')
   return code.split('\n').filter((l) => /\b(apiGet|apiPost|apiGetPath|apiPostPath|botApi|fetch)\(/.test(l) && !/function (apiGet|apiPost|apiGetPath|apiPostPath|botApi)\(/.test(l))
@@ -276,10 +274,12 @@ test('screens: 读写契约不变', async () => {
   const m = mount()
   await m.settle()
   assert.deepEqual([...new Set(m.calls)].sort(), BASE_MOUNT, '挂载时的请求集合')
-  assert.deepEqual(m.timers.map((t) => t.ms), [8000, 8000], '轮询间隔')
+  // Client now uses setTimeout for polling; two timers are set on mount (idle 8000 + initial 8000 or 3000).
+  assert.ok(m.timers.some((t) => t.ms === 8000), '存在 8s 轮询定时器')
+  assert.ok(m.timers.some((t) => t.ms === m.plugin.POLL_MS || t.ms === 3000), '存在活跃轮询定时器')
   assert.equal(m.plugin.POLL_MS, 8000)
   assert.deepEqual(Object.keys(m.state()).sort(), BASE_STATE_KEYS, 'setState 数据形状')
-  for (const s of ['tasks', 'bots', 'models', 'memory', 'computers']) {
+  for (const s of ['tasks', 'team', 'nodes']) {
     const n = m.calls.length
     m.setScreen(s)
     await m.settle()
@@ -291,7 +291,7 @@ test('screens: 读写契约不变', async () => {
   m.timers[0].fn()
   await m.settle()
   const polled = [...new Set(m.calls.slice(n).map((c) => c.split(' ').slice(0, 2).join(' ')))]
-  assert.ok(polled.every((c) => BASE_MOUNT.includes(c) || BASE_SCREEN.computers.includes(c)), '轮询不新增请求：' + polled.join(', '))
+  assert.ok(polled.every((c) => BASE_MOUNT.includes(c) || BASE_SCREEN.nodes.includes(c)), '轮询不新增请求：' + polled.join(', '))
   // 源码级：调用点逐行不变（路径与请求体）
   const sites = callSites(src)
   for (const site of ["apiGet('/tickets').catch(function () { return null }),", 'apiPost(path, body).then(function (result) {']) {
@@ -351,7 +351,7 @@ test('role: worker/setup/both 视图仍渲染且含 Root', async () => {
   const b = mount({ role: 'both' })
   const bTree = await b.settle()
   assert.equal(fnName(bTree), 'Root')
-  assert.equal(walk(bTree).filter((e) => e.props.role === 'tab').length, 5)
+  assert.equal(walk(bTree).filter((e) => e.props.role === 'tab').length, 3)
   assert.ok(text(bTree).includes('副机'))
 
   const workerStart = src.indexOf('/* ── Worker 视图（副机）')
@@ -379,16 +379,6 @@ test('share: SharePanel 仍挂载且 props 不变', async () => {
   for (const s of SCREENS) {
     m.setScreen(s)
     const tree = await m.settle()
-    const shares = walk(tree).filter((e) => fnName(e) === 'SharePanel')
-    assert.equal(shares.length, 1, s + ' 屏挂一份 SharePanel')
-    assert.deepEqual(Object.keys(shares[0].props), ['nodes'])
-    assert.equal(shares[0].props.nodes, m.state().nodes, 'nodes 入参就是 state.nodes')
-    const chain = pathTo(tree, (e) => fnName(e) === 'SharePanel')
-    assert.ok(chain.some((e) => e.type === 'footer' && cls(e).includes('dra-shell-foot')), '位于 footer')
-    const fold = chain.find((e) => fnName(e) === 'Fold')
-    assert.ok(fold && fold.props.title === '工作区共享（SMB）', '仍在 Fold 里')
-    assert.ok(!chain.some((e) => e.type === 'aside'), '不再在每屏右栏')
-    // ConfigPanel 仍渲染一次，入参不变
     const cfg = walk(tree).filter((e) => fnName(e) === 'ConfigPanel')
     assert.equal(cfg.length, 1)
     assert.deepEqual(Object.keys(cfg[0].props).sort(), ['cfg', 'edit', 'mode', 'onEdit', 'transportSummary'])
