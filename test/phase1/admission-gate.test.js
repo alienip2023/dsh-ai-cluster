@@ -279,7 +279,7 @@ test('AC-2 criterion 11: protocol and client pin, no admission fields in a scope
   const clientHash = releaseCheck.match(/^const clientHash = '([a-f0-9]{64})'$/m)?.[1]
   assert.ok(clientHash, 'missing release client hash')
   assert.equal(hash(readFileSync(path.join(root, 'lib/client.js'))), clientHash)
-  assert.equal(JSON.parse(readFileSync(path.join(root, 'package.json'))).version, '0.4.10')
+  assert.equal(JSON.parse(readFileSync(path.join(root, 'package.json'))).version, '0.4.11')
   const result = await h.tool()
   assert.equal(h.frames.length, 1)
   const [wire] = h.frames
