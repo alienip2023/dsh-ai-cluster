@@ -79,8 +79,8 @@ test('P3-H4 link category falls back to unknown', () => {
 test('P3-H6 screens unchanged', () => {
   const { plugin } = loadPanel()
   const ids = Array.from(plugin.P2_SCREENS, (entry) => entry[0])
-  assert.deepEqual(ids, ['computers','tasks','bots','models','memory'], 'P3-H6: five screen ids must be unchanged')
-  assert.equal(plugin.selectHubScreen({ screen: 'no-such-screen' }), 'computers', 'P3-H6: five screen ids must be unchanged')
+  assert.deepEqual(ids, ['nodes','tasks','team'], 'P3-H6: three screen ids must be unchanged')
+  assert.equal(plugin.selectHubScreen({ screen: 'no-such-screen' }), 'nodes', 'P3-H6: unknown screen defaults to nodes')
 })
 
 test('P3-H7 empty states do not throw', () => {

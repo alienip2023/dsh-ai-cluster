@@ -175,8 +175,8 @@ test('empty states', () => {
   assert.match(text(el2), /暂无任务/)
 })
 
-test('P2_SCREENS still has exactly the five existing ids', () => {
-  assert.deepEqual(Array.from(P.P2_SCREENS, (e) => e[0]), ['computers', 'tasks', 'bots', 'models', 'memory'])
+test('P2_SCREENS still has exactly the three existing ids', () => {
+  assert.deepEqual(Array.from(P.P2_SCREENS, (e) => e[0]), ['nodes', 'tasks', 'team'])
 })
 
 test('TOPO-RAF-1: startTopologyLoop binds raf/cancel to the host global', () => {

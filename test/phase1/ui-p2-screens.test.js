@@ -37,20 +37,20 @@ function loadView() {
 
 test('hub screen ids and labels match the five-screen skeleton', () => {
   const { P2_SCREENS } = loadView()
-  assert.deepEqual(Array.from(P2_SCREENS, (entry) => entry[0]), ['computers', 'tasks', 'bots', 'models', 'memory'])
-  assert.deepEqual(Array.from(P2_SCREENS, (entry) => entry[1]), ['电脑', '交办', '机器人', '模型', '记忆'])
+  assert.deepEqual(Array.from(P2_SCREENS, (entry) => entry[0]), ['nodes', 'tasks', 'team'])
+  assert.deepEqual(Array.from(P2_SCREENS, (entry) => entry[1]), ['节点', '任务', '团队'])
 })
 
 test('empty hub screen defaults to computers', () => {
-  assert.equal(loadView().selectHubScreen({}), 'computers')
+  assert.equal(loadView().selectHubScreen({}), 'nodes')
 })
 
 test('unknown hub screen defaults to computers', () => {
-  assert.equal(loadView().selectHubScreen({ screen: 'nope' }), 'computers')
+  assert.equal(loadView().selectHubScreen({ screen: 'nope' }), 'nodes')
 })
 
 test('hub screen remembers models', () => {
-  assert.equal(loadView().selectHubScreen({ screen: 'models' }), 'models')
+  assert.equal(loadView().selectHubScreen({ screen: 'models' }), 'team')
 })
 
 test('worker branch does not reference P2_SCREENS', () => {

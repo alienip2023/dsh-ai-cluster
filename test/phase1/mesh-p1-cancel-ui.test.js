@@ -124,7 +124,7 @@ test('MP1U-IMMUT cancel click: exactly one POST /cancel and one refresh; receipt
 })
 
 test('MP1U-LAYOUT screen ids/order/labels unchanged', () => {
-  assert.deepEqual(Array.from(P.P2_SCREENS, (e) => e[0]), ['computers', 'tasks', 'bots', 'models', 'memory'])
-  assert.deepEqual(Array.from(P.P2_SCREENS, (e) => e[1]), ['电脑', '交办', '机器人', '模型', '记忆'])
+  assert.deepEqual(Array.from(P.P2_SCREENS, (e) => e[0]), ['nodes', 'tasks', 'team'])
+  assert.deepEqual(Array.from(P.P2_SCREENS, (e) => e[1]), ['节点', '任务', '团队'])
   assert.equal(P.selectHubScreen({ screen: 'tasks' }), 'tasks')
 })
