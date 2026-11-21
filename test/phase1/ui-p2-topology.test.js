@@ -114,7 +114,7 @@ test('task states map to the four motion classes', () => {
 test('running edge animates, queued/offline stay static', () => {
   const r = P.topologyLayout({ nodes: nodes(), tasks: tasks(), width: 900, height: 560 })
   const mo = plain(P.topologyMotion(r, 1.3, { reduced: false }))
-  assert.equal(mo.edges['hub>alpha'].packets.length, 2)
+  assert.equal(mo.edges['hub>alpha'].packets.length, 3)
   assert.ok(mo.edges['hub>alpha'].packets.every((p) => p.r >= 3))
   assert.notEqual(mo.edges['hub>alpha'].dashOffset, 0)
   assert.equal(mo.edges['hub>beta'].packets.length, 0)
