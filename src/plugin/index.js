@@ -208,12 +208,11 @@ export function applyPlugin(ctx, config, createController, assembleHub) {
     handles.tools = registerClusterTools({ ctx, registry, pulls, log, defaults, sessionGate: handles.hub.sessionGate, admission })
 
     // ── Cordis 原生接缝 1：systemPrompt.context() 注入集群节点状态 ──────────
-    // 每次 prompt 组装时动态求值；order=300 在所有内置 context（≤210）之后，
-    // 不干扰 SANDBOX_POLICY / SUBAGENT_DELEGATION 等必要上下文。
+    // order=310: 避免与第三方插件使用 300 时冲突；DSH 内置 context ≤210。
     if (typeof ctx.systemPrompt?.context === 'function') {
       handles.tools.push(ctx.systemPrompt.context({
         name: 'cluster:nodes',
-        order: 300,
+        order: 310,
         required: false,
         text: () => {
           try {

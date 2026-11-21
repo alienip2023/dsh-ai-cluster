@@ -161,10 +161,16 @@ export function registerClusterTools({ ctx, registry, pulls, log: _log, defaults
       required: [], additionalProperties: false,
     },
     output: { schema: { type: 'object' }, render: renderText((_args, value) => text(value)) },
-    async execute(args) {
+    async execute(args, exec) {
       const action = ['list', 'status', 'wait'].includes(args?.action) ? args.action : 'list'
       if (action === 'list') {
-        const tasks = registry.listTasks().map((task) => registry.taskView(task))
+        let tasks = registry.listTasks().map((task) => registry.taskView(task))
+        // P2-4: when sessionGate is active, filter to only this session's tasks
+        // to prevent cross-session task visibility in multi-user hubs.
+        if (sessionGate?.guard && exec?.agent?.session?.id) {
+          const mySession = exec.agent.session.id
+          tasks = tasks.filter(t => t.sessionId == null || t.sessionId === mySession)
+        }
         return { tasks, total: tasks.length }
       }
       const task = requireTask(registry, args?.taskId)
