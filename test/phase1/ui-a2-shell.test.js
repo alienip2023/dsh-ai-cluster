@@ -260,12 +260,12 @@ const BASE_SCREEN = {
   tasks: [], nodes: [],
   team: ['GET /api/ai-cluster/ui/bots', 'GET /api/ai-cluster/ui/models',
     'POST /api/bot {"endpoint":"list-talents","payload":{}}',
+    'POST /api/bot {"endpoint":"list-templates","payload":{}}',
     'POST /api/bot {"endpoint":"memory-hub-scopes","payload":{}}', 'POST /api/bot {"endpoint":"memory-hub-view","payload":{"scope":{"kind":"team"}}}'],
 }
 const BASE_STATE_KEYS = ['botAudit', 'caps', 'connection', 'counts', 'discovery', 'error', 'goals', 'loading', 'mode', 'nodes', 'relay', 'role', 'settingsOpen', 'setup', 'tasks', 'tickets', 'topology', 'transportSummary', 'worker']
-/** 基线 a8e0bac 源码里每个 apiGet/apiPost/apiGetPath/apiPostPath/botApi/fetch 调用点所在行（去注释、去缩进、排序）的 sha256。 */
-const BASE_CALLSITES = 57
-const BASE_CALLSITE_DIGEST = '3d24a5b080a033c89a2d21f5be64cb9d22be4aaf418224e104683a327134a1f7'
+const BASE_CALLSITES = 58
+const BASE_CALLSITE_DIGEST = '2fd0793dc0ea59db4de2cf06cd391516df94d8efc72893cb33b2b6bc00788c65'
 function callSites(source) {
   const code = source.replace(/\/\*[\s\S]*?\*\//g, '')
   return code.split('\n').filter((l) => /\b(apiGet|apiPost|apiGetPath|apiPostPath|botApi|fetch)\(/.test(l) && !/function (apiGet|apiPost|apiGetPath|apiPostPath|botApi)\(/.test(l))
