@@ -206,6 +206,52 @@ export function applyPlugin(ctx, config, createController, assembleHub) {
     attachAdmission(registry)
     const { defaults } = normalizeConfig(config)
     handles.tools = registerClusterTools({ ctx, registry, pulls, log, defaults, sessionGate: handles.hub.sessionGate, admission })
+
+    // ── Cordis 原生接缝 1：systemPrompt.context() 注入集群节点状态 ──────────
+    // 每次 prompt 组装时动态求值；order=300 在所有内置 context（≤210）之后，
+    // 不干扰 SANDBOX_POLICY / SUBAGENT_DELEGATION 等必要上下文。
+    if (typeof ctx.systemPrompt?.context === 'function') {
+      handles.tools.push(ctx.systemPrompt.context({
+        name: 'cluster:nodes',
+        order: 300,
+        required: false,
+        text: () => {
+          try {
+            const nodes = registry.list()
+            if (!nodes || nodes.length === 0) return ''
+            const online = nodes.filter(n => n.online)
+            if (online.length === 0) return ''
+            const lines = [`Connected cluster nodes (${online.length}/${nodes.length} online):`]
+            for (const n of online) {
+              const model = n.defaultModel?.model ? ` model=${n.defaultModel.model}` : ''
+              const queue = n.queue ? ` queue=${n.queue.running}/${n.queue.maxConcurrent}` : ''
+              lines.push(`  - ${n.nodeId} os=${n.os ?? '?'}/${n.arch ?? '?'}${model}${queue}`)
+            }
+            return lines.join('\n')
+          } catch {
+            return ''
+          }
+        },
+      }))
+    }
+
+    // ── Cordis 原生接缝 2：agent/turn-stopping — 取消该 agent 派出的在途任务 ──
+    // agent/turn-stopping 是串行事件，无 next()；不阻塞 turn 本身。
+    if (typeof ctx.on === 'function') {
+      handles.tools.push(ctx.on('agent/turn-stopping', ({ agent }) => {
+        try {
+          const sessionId = agent?.session?.id
+          if (!sessionId) return
+          const tasks = registry.listTasks?.() ?? []
+          for (const task of tasks) {
+            if (task.sessionId !== sessionId) continue
+            if (task.status === 'running' || task.status === 'queued' || task.status === 'pending') {
+              try { registry.cancelTask(task.taskId) } catch { /* best-effort */ }
+            }
+          }
+        } catch { /* never block turn disposal */ }
+      }))
+    }
   }
 
   if (role === ROLE.WORKER || role === ROLE.BOTH) {
