@@ -405,6 +405,7 @@ test('buildNodeHello：形状正确且能过 validateHello', (t) => {
     'bot-turn-mode/1',
     'bot-action/1',
     'roster-cards/1',
+    'bot-trace/1',
     ...(process.platform === 'win32' ? ['desktop', 'gui'] : []),
   ])
 
