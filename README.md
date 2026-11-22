@@ -76,8 +76,9 @@ dsh plugin install <tgz>
 - **`bot/turn`**（主控 → 节点）：把一句话投进节点上已有的 Bot 会话。可带 `mode`：`steer`（并入正在跑的回合）或 `queue`（排队等下一回合），需要节点带能力 `bot-turn-mode/1`；旧节点忽略 `mode`。
 - **`bot/turn-result`**（节点 → 主控）：回合的答案。链路断开时节点按退避重发约 30 分钟；主控侧该回合保持 `running` 并标 `linkLost`（面板轮询可见），晚到的结果照常结算，2 小时仍无结果才判失败并写审计。结果帧校验失败不会静默：主控记审计，认得出回合时回一个明确的失败结果。
 - **`bot/action`**（主控 → 节点）与 **`bot/action-result`**：替用户对节点 Bot 的界面状态做操作，`action` 为 `card-answer`、`task-stop`、`task-send`、`task-start`；需要能力 `bot-action/1`，加密，回执校验失败会立刻以失败结算请求方。
+- **`bot/trace`**（节点 → 主控，能力 `bot-trace/1`）：节点 Bot 一个回合里的思考过程与工具步骤，让主控页面像本地 Bot 一样显示「思考过程」和工具步骤。载荷 `{ nodeId, remoteBotId, exchangeId, seq, final?, items, omitted? }`：`items` 是追加式日志（`{ i, t:'a', think?, calls?, end? }` 一条助手消息、`{ i, t:'r', id, ok, out? }` 一个工具结果），主控按序号 `i` 去重、排序；回合进行中分批（节流）发出，回合结束时在 `bot/turn-result` 之前再发一帧 `final:true`，带全部步骤，用来修补丢掉的中间帧。文本字段有长度上限（超出在文末写「…[已截断 N 字]」），条数 / 字节超限丢弃的数量记在 `omitted` / `clipped`，不静默；整帧加密。节点只在 hub 的 welcome 里带了 `bot-trace/1` 后才发，旧 hub 一帧也收不到。
 - **`roster/report`**（节点 → 主控）：节点 Bot 名册，附带每个 Bot 正在跑的任务摘要和等待人回答的**卡片**（`cards`，能力 `roster-cards/1`；每个 Bot 最多 8 张，正文 2000 字）。整帧不超过 512 KiB：超出时按「卡片正文 → 技能正文 → 最旧任务 → 卡片」裁，不丢 Bot，被裁的内容在 `trimmed` 里列出；内容未变的名册 30 秒内不重发。
-- **能力**（节点 hello 的 `caps`）：`bot-turn-mode/1`、`bot-action/1`、`roster-cards/1`。ds-bot 在使用前读取这些能力（从节点 hello 的 `caps`）：缺能力的节点退回到它能做的事，并提示哪台节点需要升级到 0.4.20；能力未知（节点未连上或旧版 AC 不上报）按「能」处理，由节点自己的拒绝如实显示。
+- **能力**（节点 hello 的 `caps`）：`bot-turn-mode/1`、`bot-action/1`、`roster-cards/1`、`bot-trace/1`；hub 在 welcome 的 `caps` 里带 `memory-sync/1`、`bot-trace/1`。ds-bot 在使用前读取这些能力（从节点 hello 的 `caps`）：缺能力的节点退回到它能做的事，并提示哪台节点需要升级到 0.4.20；能力未知（节点未连上或旧版 AC 不上报）按「能」处理，由节点自己的拒绝如实显示。
 - **加密**：E2E 会话建立后，节点上行的会话/控制帧必须是密文，明文会被主控丢弃、审计并回 `e2e-required`（`hello`/`ping`/`pong`/`error`、握手帧和遥测除外）。
 
 进一步阅读：[部署指南](profiles/README.md)、[已知问题](KNOWN-ISSUES.md)、[安全说明](SECURITY.md)、[更新日志](CHANGELOG.md)和 [MIT 许可证](LICENSE)。

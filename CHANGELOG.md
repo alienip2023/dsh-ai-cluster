@@ -9,6 +9,12 @@
 
 ---
 
+## 未发布（下一版，配套 ds-bot 分支 feat/node-trace）
+
+- 新增 `bot/trace`（节点 → 主控，能力 `bot-trace/1`）：节点 Bot 回合里的思考过程与工具步骤送到主控页面，和本地 Bot 的页面一致。回合进行中分批（节流）发出，回合结束时在 `bot/turn-result` 之前再发一帧 `final:true`（带全部步骤，修补丢掉的中间帧）；步骤带回合内单调序号 `i`，主控按 `i` 去重、排序；文本有长度上限（文末写明截掉多少字），条数 / 字节超限丢弃的数量记在 `omitted` / `clipped`；整帧加密（两张必须加密表都有）。
+- `bot/turn` 接收器多一个参数 `{ enabled, trace(payload) }`，返回值里的 `trace: { items, omitted? }` 作为最终步骤；hub welcome 的 `caps` 新增 `bot-trace/1`，节点 hello 的 `caps` 新增 `bot-trace/1`。节点只在 hub 宣告该能力后才发 `bot/trace`，来自对等节点的回合与重放路径不发。
+- hub 摄入校验 `bot/trace`（`validateBotTrace`，`lib/protocol.js` 与 `src/wire` 两份一致），发出 `botTrace` 事件；坏帧只记 warn 与审计，不让回合失败；原样重放只投递一次。
+
 ## 0.4.20 — 2026-11-23
 
 - 副机重发回合答案的预算由约 2 分钟延长到约 30 分钟：链路断开一阵子，答案仍能送达。

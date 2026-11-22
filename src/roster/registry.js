@@ -42,6 +42,7 @@ import {
   validateJobsFrame,
   validateHello,
   validateBotTurnResult,
+  validateBotTrace,
   validateBotTurn,
   validateBotMessage,
   validateBotCreateResult,
@@ -1052,6 +1053,31 @@ export function withIngest(Base) {
             }
           }
           try { this.emit('botTurnResult', { ...checked.result, nodeId }) } catch { /* a listener must not take the ingest path down */ }
+          return
+        }
+
+        case NODE_TO_HUB.BOT_TRACE: {
+          // 节点 Bot 的思考过程与工具步骤（bot-trace/1）。只是页面的附加显示：坏帧不让回合失败，
+          // 只记 warn 与审计；真正的权威是 bot/turn-result 的文本，trace 缺了页面照样有答案。
+          const checked = validateBotTrace(d)
+          if (!checked.ok) {
+            this.log?.('warn', 'bot/trace rejected', { nodeId, error: checked.error })
+            return
+          }
+          const trace = checked.trace
+          // 与回合结果同口径：必须落在认证连接名下，冒名帧整帧丢弃。
+          if (trace.nodeId !== nodeId) {
+            this.log('warn', 'peer-node-mismatch', { connection: nodeId, claimed: trace.nodeId, frame: 'bot/trace' })
+            return
+          }
+          // 原样重放（同一帧发了两次）只算一次。key 带上条数与末尾序号：节点重启后同一 exchangeId
+          // 重新从 seq 1 开始，内容不同的帧不会被误当成重放。ds-bot 另按步骤序号 i 去重，这里只是省一次投递。
+          this.traceSeen ??= new Set()
+          const seenKey = `${nodeId}\u0000${trace.exchangeId}\u0000${trace.seq}\u0000${trace.final === true ? 'f' : ''}\u0000${trace.items.length}\u0000${trace.items.at(-1)?.i ?? 0}`
+          if (this.traceSeen.has(seenKey)) return
+          if (this.traceSeen.size >= 4096) this.traceSeen.delete(this.traceSeen.values().next().value)
+          this.traceSeen.add(seenKey)
+          try { this.emit('botTrace', { ...trace, nodeId }) } catch { /* a listener must not take the ingest path down */ }
           return
         }
 

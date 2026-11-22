@@ -440,6 +440,128 @@ export function validateBotTurnResult(d) {
 }
 
 /**
+ * bot/trace 的上限。节点与 hub 两边都按这张表裁；文本超长时在文末写明截掉了多少字，
+ * 条数 / 字节超限丢掉的数量记在 clipped（帧内）与 omitted（节点自报），不静默。
+ */
+export const BOT_TRACE_LIMITS = Object.freeze({
+  /** 一个回合的步骤总数（final 帧）。 */
+  maxItems: 400,
+  /** 一个实时帧里的步骤数。 */
+  maxBatchItems: 64,
+  think: 6000,
+  args: 1500,
+  out: 3000,
+  name: 120,
+  callId: 200,
+  /** 一条助手消息里的工具调用数。 */
+  calls: 16,
+  /** 一帧 items 序列化后的字节上限（ws 帧 4 MiB 上限之内留足余量）。 */
+  frameBytes: 384 * 1024,
+})
+
+function traceClip(value, max, stats) {
+  if (typeof value !== 'string' || value === '') return ''
+  if (value.length <= max) return value
+  let end = max
+  const last = value.charCodeAt(end - 1)
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1
+  stats.clipped += 1
+  return `${value.slice(0, end)}…[已截断 ${value.length - end} 字]`
+}
+
+// 工具参数是模型给的原始 JSON 串。超长时仍给一个合法 JSON，页面解析它不会出错。
+function traceArgs(value, max, stats) {
+  const raw = typeof value === 'string' ? value : ''
+  if (raw.length <= max) return raw
+  stats.clipped += 1
+  const head = raw.slice(0, 300)
+  return JSON.stringify({ _truncated: `${head}…[已截断 ${raw.length - head.length} 字]` })
+}
+
+function cleanTraceItem(raw, limits, stats) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  if (!Number.isSafeInteger(raw.i) || raw.i < 1) return null
+  if (raw.t === 'a') {
+    const item = { i: raw.i, t: 'a' }
+    const think = traceClip(raw.think, limits.think, stats)
+    if (think !== '') item.think = think
+    if (Array.isArray(raw.calls)) {
+      const calls = []
+      for (const call of raw.calls.slice(0, limits.calls)) {
+        if (!call || typeof call !== 'object' || typeof call.id !== 'string' || call.id.trim() === '' || call.id.length > limits.callId
+          || typeof call.name !== 'string' || call.name.trim() === '') { stats.clipped += 1; continue }
+        calls.push({ id: call.id, name: call.name.slice(0, limits.name), args: traceArgs(call.args, limits.args, stats) })
+      }
+      stats.clipped += Math.max(0, raw.calls.length - limits.calls)
+      if (calls.length > 0) item.calls = calls
+    }
+    if (raw.end === true) item.end = true
+    return item
+  }
+  if (raw.t === 'r') {
+    if (typeof raw.id !== 'string' || raw.id.trim() === '' || raw.id.length > limits.callId) return null
+    const item = { i: raw.i, t: 'r', id: raw.id, ok: raw.ok !== false }
+    const out = traceClip(raw.out, limits.out, stats)
+    if (out !== '') item.out = out
+    return item
+  }
+  return null
+}
+
+/**
+ * 校验 bot/trace。缺身份 / seq / items 整帧拒绝；单条步骤不合法只丢那一条并记入 clipped。
+ * @returns {{ok:true, trace:object} | {ok:false, error:string}}
+ */
+export function validateBotTrace(d) {
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return { ok: false, error: 'bot-trace-missing' }
+  const nodeId = requiredTurnId(d.nodeId, 'bot-trace-nodeId-missing')
+  if (!nodeId.ok) return nodeId
+  const remoteBotId = requiredTurnId(d.remoteBotId, 'bot-trace-remoteBotId-missing')
+  if (!remoteBotId.ok) return remoteBotId
+  const exchangeId = requiredTurnId(d.exchangeId, 'bot-trace-exchangeId-missing')
+  if (!exchangeId.ok) return exchangeId
+  if (typeof d.seq !== 'number' || !Number.isInteger(d.seq)) return { ok: false, error: 'bot-trace-seq-missing' }
+  if (d.seq < 1) return { ok: false, error: 'bot-trace-seq-invalid' }
+  if (!Array.isArray(d.items)) return { ok: false, error: 'bot-trace-items-missing' }
+  const room = {}
+  if (Object.hasOwn(d, 'roomId')) {
+    if (typeof d.roomId !== 'string' || d.roomId.trim() === '' || d.roomId.trim().length > 200) return { ok: false, error: 'bot-trace-room-invalid' }
+    room.roomId = d.roomId.trim()
+  }
+  const limits = BOT_TRACE_LIMITS
+  const final = d.final === true
+  const cap = final ? limits.maxItems : limits.maxBatchItems
+  const stats = { clipped: Math.max(0, d.items.length - cap) }
+  const seen = new Set()
+  const items = []
+  let bytes = 0
+  for (const raw of d.items.slice(0, cap)) {
+    const item = cleanTraceItem(raw, limits, stats)
+    if (item === null || seen.has(item.i)) { stats.clipped += 1; continue }
+    bytes += Buffer.byteLength(JSON.stringify(item), 'utf8')
+    if (bytes > limits.frameBytes) { stats.clipped += 1; continue }
+    seen.add(item.i)
+    items.push(item)
+  }
+  items.sort((a, b) => a.i - b.i)
+  const omitted = Number.isSafeInteger(d.omitted) && d.omitted > 0 ? d.omitted : 0
+  return {
+    ok: true,
+    trace: {
+      nodeId: nodeId.value,
+      remoteBotId: remoteBotId.value,
+      exchangeId: exchangeId.value,
+      seq: d.seq,
+      ...(final ? { final: true } : {}),
+      items,
+      ...(omitted > 0 ? { omitted } : {}),
+      ...(stats.clipped > 0 ? { clipped: stats.clipped } : {}),
+      ...room,
+    },
+  }
+}
+
+/**
  * 校验 bot/update。至少一个字段非 null；类型不对按 null，不整帧拒绝。
  * @returns {{ok:true, update:object} | {ok:false, error:string}}
  */
