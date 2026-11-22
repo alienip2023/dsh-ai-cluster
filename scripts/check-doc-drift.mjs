@@ -51,6 +51,16 @@ check('identity.titles', '文档标题与面板显示 AI 集群控制 / AI Clust
   && client.includes("label: function () { return 'AI 集群控制' }"),
   'README.md + README.en.md + profiles/README.md + lib/client.js')
 
+// 版本一致性：CHANGELOG 最新一节的标题就是 package.json 的版本，两份 README 的首段也写同一个版本。
+// 原先 CHANGELOG 停在 0.4.6、README 停在 0.4.6，而包已是 0.4.20，没有任何检查会发现。
+const changelogHead = read('CHANGELOG.md').match(/^## (\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)\b/m)?.[1]
+check('identity.changelog', 'CHANGELOG.md 最新一节的版本等于 package.json 的版本',
+  changelogHead === pkg.version, `CHANGELOG 最新 ${changelogHead ?? '（无）'} / package.json ${pkg.version}`)
+check('identity.readme-version', 'README.md 与 README.en.md 首段写的版本等于 package.json 的版本',
+  new RegExp(`^\`dsh-ai-cluster\` ${pkg.version.replace(/\./g, '\\.')} `, 'm').test(read('README.md'))
+  && new RegExp(`^\`dsh-ai-cluster\` ${pkg.version.replace(/\./g, '\\.')} `, 'm').test(read('README.en.md')),
+  'README.md + README.en.md')
+
 /**
  * 取一个具名函数的完整函数体（花括号匹配）。
  *

@@ -2,11 +2,11 @@
 
 [简体中文](README.md)
 
-`dsh-ai-cluster` 0.4.6 is a DSH plugin. The hub uses the AI Cluster Control panel to view nodes and assign tasks. Workers run tasks in their own workspaces and send back the results. The protocol version remains **1**.
+`dsh-ai-cluster` 0.4.20 is a DSH plugin. The hub uses the AI Cluster Control panel to view nodes and assign tasks. Workers run tasks in their own workspaces and send back the results. The protocol version remains **1**.
 
 ## 1. Quick start
 
-Install the plugin from the 0.4.6 `.tgz` on the hub and worker machines running DSH:
+Install the plugin from the 0.4.20 `.tgz` on the hub and worker machines running DSH:
 
 ```sh
 dsh plugin install <tgz>
@@ -68,5 +68,16 @@ Use `remote_agents` to view background agents and `remote_interrupt` to request 
 ## 12. Two-way file transfer and screenshots
 
 `remote_file` transfers files between authorized directories. The limit is 512 MiB per file, with 256 KiB chunks and SHA256 verification. Uploads require confirmation. If the worker supports desktop capture, you can request a screenshot with `remote_screenshot`.
+
+## 13. Wire frames and capabilities (pairing with ds-bot)
+
+The protocol version remains **1**. These are the frames ds-bot and AC use together; `lib/protocol.js` (live) and `src/wire/*` (source copy, kept identical by a drift test) are the reference for fields.
+
+- **`bot/turn`** (hub to node): puts one message into an existing Bot session on the node. It may carry `mode`: `steer` (join the running turn) or `queue` (wait for the next turn). This needs the node capability `bot-turn-mode/1`; an older node ignores `mode`.
+- **`bot/turn-result`** (node to hub): the answer of a turn. If the link drops, the node retries with backoff for about 30 minutes; on the hub the turn stays `running` with a `linkLost` flag (visible to panel polling), a late result still settles it, and only after 2 hours without a result is it failed and audited. A result that fails validation is never silent: the hub audits it and, when it can tell which turn it was, answers with an explicit failure result.
+- **`bot/action`** (hub to node) and **`bot/action-result`**: act on a node Bot's UI state for the user. `action` is `card-answer`, `task-stop`, `task-send` or `task-start`. Needs capability `bot-action/1`; encrypted; a receipt that fails validation settles the requester at once as a failure.
+- **`roster/report`** (node to hub): the node's Bot roster, with each Bot's running-task summary and the **cards** it waits on someone to answer (`cards`, capability `roster-cards/1`; at most 8 per Bot, 2000 characters per body). The whole frame stays within 512 KiB: when over, it trims card bodies, then skill content, then the oldest tasks, then cards, never a Bot, and lists what it trimmed in `trimmed`. An unchanged roster is not resent within 30 seconds.
+- **Capabilities** (`caps` in the node hello): `bot-turn-mode/1`, `bot-action/1`, `roster-cards/1`. ds-bot reads these capabilities from the node hello before using a feature: a node without one falls back to what it can do and the panel says which node needs AC 0.4.20; unknown capabilities (node not connected, or an older AC that does not report them) count as able, and the node's own refusal is shown as is.
+- **Encryption**: once an E2E session exists, a node's uplink conversation and control frames must be encrypted; the hub drops plaintext ones, audits them and answers `e2e-required` (except `hello`, `ping`, `pong`, `error`, the handshake frames and telemetry).
 
 Further reading includes the [deployment guide](profiles/README.md), [known issues](KNOWN-ISSUES.md), [security notes](SECURITY.md), [changelog](CHANGELOG.md), and [MIT license](LICENSE).

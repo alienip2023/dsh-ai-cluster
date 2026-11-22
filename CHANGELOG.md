@@ -9,6 +9,88 @@
 
 ---
 
+## 0.4.20 — 2026-11-23
+
+- 副机重发回合答案的预算由约 2 分钟延长到约 30 分钟：链路断开一阵子，答案仍能送达。
+- 节点 hello 新增能力 `bot-turn-mode/1`、`bot-action/1`、`roster-cards/1`，让 ds-bot 知道这台节点能做什么（见 README「协议帧与能力」）。
+- `NodeRegistry.markOffline` 把 `node.offline` 连同原因写进审计（高负载下的心跳超时看起来像崩溃）。
+- 配套 ds-bot 0.3.10-fork.101。
+
+### 审计修复（分支 audit/ac-fixes；版本号未动，随下一次发版）
+
+- **上行 E2E 闸**：会话建立后，节点上行的明文会话/控制帧（任务、名册、各类 `*-result`、审批、记忆、`fs/res` 等）一律丢弃，写 `ingest.rejected` 审计并回 `e2e-required`；握手帧、`hello`/`ping`/`pong`/`error`、`hub/config-sync-request`、遥测不受限，会话建立前不闸。节点在 e2e 握手窗口内先排队内容帧、会话就绪后封密发出（旧 hub 不应答则 5 秒后明文放行）。
+- 必须加密的帧清单补全：`node/model-sync`（及回执）、`hub/approval-answer`、`node/approval-request`/`-settled`、`bot/delete`、全部 `bot/*-result`、`node/config-result`；新增测试保证凡文档标注「必须加密」的帧都在清单里。
+- 心跳：节点收到**任何**入站帧都算存活，超时可配（`heartbeatTimeoutMs`，默认 = 3 倍心跳间隔，不低于 45 秒），忙碌的 Windows 节点不再因 pong 排队而被自己断开。
+- 名册帧有 512 KiB 字节预算（原最坏约 5 MB，超过 4 MiB 的 ws 帧上限会断开节点）：每 Bot 最多 8 张卡片、正文 2000 字，超预算按「卡片正文 → 技能正文 → 最旧任务 → 卡片」裁，不丢 Bot，帧里 `trimmed` 如实列出；内容未变的名册 30 秒内不重发。
+- 主控发出的 `roster` 事件与存下来的名册是同一份清洗后的列表；被清洗掉的键名/条目有限频的 warn。
+- `bot/create|history|update|delete|stop|action` 的回执校验失败不再静默：warn + 审计，requestId 可解析时立刻以 `ok:false` 结算请求方，不再等超时。
+- `bot/stop-result`、`bot/delete-result` 事件带上认证后的 `nodeId`；`peerReplyTo` 只认 `peerTurnOrigins` 里登记过的来源。
+- 作业环：节点掉线时在途回合保持 `running` 并标 `linkLost`（`botTurnStatus` 可见），晚到的真结果仍能结算；running 条目不再被 10 分钟 TTL 淘汰（2 小时硬超时，判失败并审计）；linkLost 的回合不占准入名额。
+- `node.offline` 审计的 `inFlightTurns` 改为统计该节点 running 的 bot 回合（原先误数任务）。
+- `turn-seq`：原子写（临时文件 + rename）、状态文件不可读时告警并从时间下限重新起号，不再回到 0。
+- 面板 `uiNodeView` 恢复 `hostname`/`peerHost`（拓扑图地址、LAN 判定）。
+- `lib/protocol.js` 与 `src/wire` 对齐：`validateBotDirectory` 在 src 侧补上 `rooms`；`lib/node/dispatch.js` 改用共享的 `validateModelSync`；新增漂移测试。
+- 测试/文档：phase1 名册测试改测线上文件；修一个 1/4096 概率的 e2e 篡改用例；过期用例按现行设计更新；文档与注释改为 exec 缺省 `auto`；发版检查的版本从 package.json 读取；新增 CHANGELOG 与 package.json 版本一致性检查。
+
+## 0.4.19 — 2026-11-23
+
+- 新增 `bot/action`（主控 → 节点）与 `bot/action-result`：`card-answer`、`task-stop`、`task-send`、`task-start`；加密、校验，帧无效时也会回错误。
+- `bot/turn` 可带 `mode`（`steer` | `queue`），节点收到后交给接收器；旧节点忽略 `mode`，也没有 `bot/action` 接收器。
+- 名册帧经 `cleanRosterBots` 带出清洗后的卡片（审批、提问、技能提议、规则…），旧主控会丢弃 `cards`。
+- 配套 ds-bot 0.3.10-fork.100。
+
+## 0.4.18 — 2026-11-23
+
+- 修复：名册里的运行中任务摘要（id/title/status/startedAt，仅运行态，最多 8 条）此前被 `cleanRosterBots` 白名单挡掉，ds-bot 的 `nodeTasks` 永远为空；现在原样带过，空列表也保留。
+
+## 0.4.17 — 2026-11-23
+
+- 版本提升到 0.4.17；发版检查的版本钉与 `lib/client.js` 哈希跟进。
+
+## 0.4.16 — 2026-11-22
+
+- 修复 `bot/turn-result` 被静默丢弃：主控每条丢弃路径都写审计（`ingest.rejected` / `ingest.forwarded` / `ingest.turn-result`）并告警；仍能认出回合的无效帧会回一个明确的失败结果（`ingest-rejected:<原因>`），冒名帧只审计不替人判失败；peer 转发失败落回本地投递。
+- 副机的结果帧不再是发了就忘：`send() === false`（长回合跨重连时链路断着）会记录并有界退避重发（当时约 2 分钟），成功发送记录 exchangeId/seq/attempt。
+- **缺省审批改为 `auto`**：`exec` 不再默认 `manual`，两个校验器缺省都是 `auto`；显式 `approval:"manual"` 仍会挂起任务。
+- 补上 `bot/steer` 在 `src/wire`、任务分发与 E2E 必加密清单里的缺口；恢复 SSH 探测卡与部署步骤视图。
+
+## 0.4.15 — 2026-11-21
+
+- 修复：`bot/steer`（插队）帧在插件的 `task-run/dispatch.js` 里没有处理分支，插件形态的节点收不到。
+
+## 0.4.14 — 2026-11-21
+
+- 修复：副机的 `cluster_selfcheck` 等异步文件操作在非 peer 模式下返回未决的 Promise（序列化成 `{}`），现在无条件 await。
+- 团队屏的 Bot 创建表单新增模板选择器（按分类分组）。
+
+## 0.4.13 — 2026-11-21
+
+- `systemPrompt.context` 顺序 300 → 310，避开第三方插件常用的整数；`cluster_agents` 在启用 sessionGate 时只列当前会话的任务（`sessionId` 为空的旧任务仍可见）。
+
+## 0.4.12 — 2026-11-21
+
+- 按 Cordis 习惯优化工具：9 个只读工具声明 `isConcurrencySafe`，`cluster_selfcheck`/`cluster_ps`/`cluster_port` 声明 `timeoutMs`；系统提示注入在线节点清单；agent 回合被停止时取消它派出的在途任务（尽力而为）。
+
+## 0.4.11 — 2026-11-21
+
+- Bot 创建表单新增人才目录选择器（选中后填入名称/角色/指令）；无目录文件时使用内置的 10 个默认人才。
+
+## 0.4.10 — 2026-11-21
+
+- 拓扑图重做：纯力导向布局（保证不重叠）、双环旋转与数据包动画、扫描线样式。
+
+## 0.4.9 — 2026-11-21
+
+- 修复 0.4.8 测试报告里剩余的 18 个回归（三屏壳层契约、版本断言）。
+
+## 0.4.8 — 2026-11-21
+
+- 修复 0.4.7 测试报告中的回归：恢复 SSH 探测卡的安装按钮、面板更新为三屏（节点/任务/团队）、团队屏 `listTotal` 的暂时性死区。
+
+## 0.4.7 — 2026-11-21
+
+- 节点上的 ds-bot 工具审批中继到主控面板：新增 `node/approval-request`、`hub/approval-answer`、`node/approval-settled`（均加密）及校验器；面板新增任务四象限、目标面板（`/goals`）与 Bot 审计面板（`/bot-audit`，200 条环形缓冲）。
+
 ## 0.4.6 — 2026-11-21
 
 - 主机独立监听不再在 4 次快速重试（200/400/600ms）后放弃：端口仍被占用时转低频等待（5s/10s/20s，之后每 30s），端口空出后自动接上，直到插件卸载。此前老宿主进程残留占着 19387 时，新宿主永远绑不上，面板全离线，必须再重启一次才恢复。
