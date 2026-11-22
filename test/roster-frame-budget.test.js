@@ -135,3 +135,14 @@ test('a card keeps an opaque data string up to its cap; a larger one is dropped 
   const frame = { bots: [{ cards: [{ id: 'view:1', body: 'b', data: small, at: 1 }] }] }
   assert.deepEqual(fitRosterFrame(frame, 10), ['card-bodies', 'cards'])
 })
+
+test('a Bot keeps a valid colour, avatar shape and effort; a bad one is dropped and the Bot stays', async () => {
+  const { cleanRosterBots } = await import('../lib/roster-report.js')
+  const [ok, bad] = cleanRosterBots([
+    { id: 'a', name: 'A', color: '#aabbcc', avatarShape: 'cat', effort: 'high' },
+    { id: 'b', name: 'B', color: 'javascript:1', avatarShape: 'Bad Shape', effort: 7 },
+  ])
+  assert.deepEqual([ok.color, ok.avatarShape, ok.effort], ['#aabbcc', 'cat', 'high'])
+  assert.equal(bad.name, 'B')
+  assert.deepEqual([bad.color, bad.avatarShape, bad.effort], [undefined, undefined, undefined])
+})

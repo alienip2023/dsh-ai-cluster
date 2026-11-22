@@ -93,6 +93,11 @@ export function cleanRosterBots(bots) {
     if (typeof bot.clusterBotId === 'string' && CLUSTER_BOT_ID_RE.test(bot.clusterBotId)) {
       entry.clusterBotId = bot.clusterBotId
     }
+    // How the Bot looks and thinks, so its row on the hub matches the node's own page. A bad value
+    // drops the field, never the Bot.
+    if (typeof bot.color === 'string' && /^(#[0-9a-fA-F]{6}|[a-z][a-z0-9-]{0,15})$/.test(bot.color)) entry.color = bot.color
+    if (typeof bot.avatarShape === 'string' && /^[a-z][\w-]{0,31}$/.test(bot.avatarShape)) entry.avatarShape = bot.avatarShape
+    if (typeof bot.effort === 'string' && /^[a-z][a-z0-9-]{0,15}$/.test(bot.effort)) entry.effort = bot.effort
     const tasks = cleanRosterTasks(bot.tasks)
     if (tasks !== undefined) entry.tasks = tasks
     const cards = cleanRosterCards(bot.cards)
