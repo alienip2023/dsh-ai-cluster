@@ -21,7 +21,9 @@ const PAYLOAD = () => ({
   providers: [{ id: 'alpha', api: 'openai-completions', baseURL: BASE, apiKeyEnv: 'ALPHA_KEY', apiKey: KEY, models: [{ id: 'm1', name: 'M1' }] }],
   defaultModel: 'alpha/m1',
 })
-const fakeE2E = () => ({ sealFrame: (_type, _id, d) => ({ e2e: E2E_MARKER, inner: d }) })
+// The hub refuses plaintext content frames once a session exists, so the fake session also opens what it seals.
+const fakeE2E = () => ({ sealFrame: (_type, _id, d) => ({ e2e: E2E_MARKER, inner: d }), openFrame: (_type, _id, env) => env.inner })
+const sealed = (d) => ({ e2e: E2E_MARKER, inner: d })
 
 function setup() {
   const logs = []
@@ -32,7 +34,7 @@ function setup() {
   const sync = createConfigSync({ registry, source: PAYLOAD, log })
   registry.on('configSyncRequest', (ev) => sync.handleSyncRequest(ev))
   const push = () => registry.handleFrameFor('n1', { t: NODE_TO_HUB.CONFIG_SYNC_REQUEST, d: { appliedRevision: 0 } })
-  const ack = (d) => registry.handleFrameFor('n1', { t: NODE_TO_HUB.CONFIG_ACK, d })
+  const ack = (d) => registry.handleFrameFor('n1', { t: NODE_TO_HUB.CONFIG_ACK, d: sealed(d) })
   const ackLogs = () => logs.filter((l) => /node (rejected|applied) config/.test(l.msg))
   return { registry, sync, logs, push, ack, ackLogs, revision: computeRevision(PAYLOAD()) }
 }
@@ -89,7 +91,7 @@ test('ACK-6: the revision is the last one pushed to THAT node', () => {
   const w = setup()
   w.registry.nodes.set('n2', { nodeId: 'n2', online: true, lastSeen: 0, e2e: fakeE2E() })
   w.push()
-  w.registry.handleFrameFor('n2', { t: NODE_TO_HUB.CONFIG_ACK, d: { ok: false, error: 'plugin-not-allowed' } })
+  w.registry.handleFrameFor('n2', { t: NODE_TO_HUB.CONFIG_ACK, d: sealed({ ok: false, error: 'plugin-not-allowed' }) })
   w.ack({ ok: false, error: 'plugin-not-allowed' })
   const [n2, n1] = w.ackLogs().map((e) => e.meta)
   assert.deepEqual(n2, { nodeId: 'n2', revision: null, error: 'plugin-not-allowed' })

@@ -20,11 +20,27 @@ import {
   envelope,
 } from '../lib/protocol.js'
 import { NodeRegistry } from '../lib/hub/node-registry.js'
+import { createSession, generateEphemeral } from '../lib/e2e.js'
 import { createRelay, newRelayToken } from '../lib/relay.js'
 import { connect } from '../lib/ws.js'
 
 const READ = { requestId: 'r-1', remoteBotId: 'bot-1', scope: 'bot', query: 'deploy' }
 const WRITE = { requestId: 'r-2', remoteBotId: 'bot-1', scope: 'bot', op: 'add', text: 'remember' }
+
+/** A real hub/node session pair: the hub gate rejects plaintext content once a session exists. */
+function sessionPair() {
+  const n = generateEphemeral()
+  const h = generateEphemeral()
+  return {
+    node: createSession({ role: 'node', ownPrivB64: n.privateKeyB64, peerPubB64: h.publicKeyB64, nodePubB64: n.publicKeyB64, hubPubB64: h.publicKeyB64 }),
+    hub: createSession({ role: 'hub', ownPrivB64: h.privateKeyB64, peerPubB64: n.publicKeyB64, nodePubB64: n.publicKeyB64, hubPubB64: h.publicKeyB64 }),
+  }
+}
+
+/** Seal `d` the way a node with an established session does. */
+function sealUp(session, t, d, id = `m-${t}`) {
+  return { v: PROTOCOL_VERSION, t, id, d: session.sealFrame(t, id, d) }
+}
 
 function registryWithLogs() {
   const logs = []
@@ -36,18 +52,18 @@ function registryWithLogs() {
   for (const name of ['memoryHello', 'memoryRead', 'memoryWrite', 'memoryAck']) {
     registry.on(name, (payload) => events.push({ name, payload }))
   }
-  // 认证连接上的已登记节点。e2e 用空对象表示会话已建立 —— 正文帧只要求
-  // 「有会话」，加解密本身由 transport/e2e 层负责，不在这里重复实现。
-  registry.nodes.set('n-1', { nodeId: 'n-1', lastSeen: 0, e2e: {} })
-  return { registry, logs, events }
+  // 认证连接上的已登记节点，带一对真实会话：hub 入站闸要求会话建立后的内容帧是密文。
+  const pair = sessionPair()
+  registry.nodes.set('n-1', { nodeId: 'n-1', lastSeen: 0, e2e: pair.hub })
+  return { registry, logs, events, node: pair.node }
 }
 
 test('a well-formed memory frame from the bound node reaches its listener', () => {
-  const { registry, events } = registryWithLogs()
-  registry.handleFrameFor('n-1', { t: MEMORY.HELLO, d: { appliedSeq: 4, nodeId: 'n-1' } })
-  registry.handleFrameFor('n-1', { t: MEMORY.READ, d: { ...READ, nodeId: 'n-1' } })
-  registry.handleFrameFor('n-1', { t: MEMORY.WRITE, d: { ...WRITE, nodeId: 'n-1' } })
-  registry.handleFrameFor('n-1', { t: MEMORY.ACK, d: { seq: 4 } })
+  const { registry, events, node } = registryWithLogs()
+  registry.handleFrameFor('n-1', sealUp(node, MEMORY.HELLO, { appliedSeq: 4, nodeId: 'n-1' }))
+  registry.handleFrameFor('n-1', sealUp(node, MEMORY.READ, { ...READ, nodeId: 'n-1' }))
+  registry.handleFrameFor('n-1', sealUp(node, MEMORY.WRITE, { ...WRITE, nodeId: 'n-1' }))
+  registry.handleFrameFor('n-1', sealUp(node, MEMORY.ACK, { seq: 4 }))
 
   assert.deepEqual(events.map((e) => e.name), ['memoryHello', 'memoryRead', 'memoryWrite', 'memoryAck'])
   assert.equal(events[0].payload.appliedSeq, 4)
@@ -58,8 +74,8 @@ test('a well-formed memory frame from the bound node reaches its listener', () =
 })
 
 test('a frame claiming another node is dropped whole, with a single warn', () => {
-  const { registry, logs, events } = registryWithLogs()
-  registry.handleFrameFor('n-1', { t: MEMORY.READ, d: { ...READ, nodeId: 'n-2' } })
+  const { registry, logs, events, node } = registryWithLogs()
+  registry.handleFrameFor('n-1', sealUp(node, MEMORY.READ, { ...READ, nodeId: 'n-2' }))
 
   assert.deepEqual(events, [], 'an impersonated read must not be broadcast')
   assert.equal(registry.memoryDrops.identity, 1)
@@ -68,15 +84,16 @@ test('a frame claiming another node is dropped whole, with a single warn', () =>
   assert.equal(warns[0].extra.reason, 'identity')
 
   // hello 也走同一条身份口径
-  registry.handleFrameFor('n-1', { t: MEMORY.HELLO, d: { appliedSeq: 1, nodeId: 'n-2' } })
+  registry.handleFrameFor('n-1', sealUp(node, MEMORY.HELLO, { appliedSeq: 1, nodeId: 'n-2' }))
   assert.equal(events.filter((e) => e.name === 'memoryHello').length, 0)
   assert.equal(registry.memoryDrops.identity, 2)
 })
 
 test('bad frames are dropped without throwing and counted as invalid', () => {
-  const { registry, events } = registryWithLogs()
-  for (const d of [null, 'mem/read', 42, [], {}, { requestId: 'r' }]) {
-    assert.doesNotThrow(() => registry.handleFrameFor('n-1', { t: MEMORY.READ, d }))
+  const { registry, events, node } = registryWithLogs()
+  // A sealed payload is always an object (non-objects cannot be sealed), so the malformed shapes are objects.
+  for (const d of [{}, { requestId: 'r' }, { requestId: 1 }, { query: 'q' }, { requestId: 'r', remoteBotId: 'b' }, { requestId: 'r', remoteBotId: 'b', scope: 'nope', query: 'q' }]) {
+    assert.doesNotThrow(() => registry.handleFrameFor('n-1', sealUp(node, MEMORY.READ, d)))
   }
   assert.deepEqual(events, [])
   assert.equal(registry.memoryDrops.invalid, 6)
@@ -93,9 +110,9 @@ test('a body frame without an e2e session is refused', () => {
 })
 
 test('an oversized frame is dropped and counted, not parsed field by field', () => {
-  const { registry, events } = registryWithLogs()
+  const { registry, events, node } = registryWithLogs()
   const junk = 'x'.repeat(70 * 1024)
-  registry.handleFrameFor('n-1', { t: MEMORY.HELLO, d: { appliedSeq: 0, nodeId: 'n-1', junk } })
+  registry.handleFrameFor('n-1', sealUp(node, MEMORY.HELLO, { appliedSeq: 0, nodeId: 'n-1', junk }))
 
   assert.deepEqual(events, [])
   assert.equal(registry.memoryDrops.oversize, 1)
@@ -170,8 +187,9 @@ test('a real relay rewrites from to the bound node, and ingest then drops the fo
 
   // hub 侧摄入：载荷里的伪造身份与连接绑定不符 → 整帧丢弃。
   const { registry, events } = registryWithLogs()
-  registry.nodes.set('node-r1', { nodeId: 'node-r1', lastSeen: 0, e2e: {} })
-  registry.handleFrameFor('node-r1', up)
+  const pair = sessionPair()
+  registry.nodes.set('node-r1', { nodeId: 'node-r1', lastSeen: 0, e2e: pair.hub })
+  registry.handleFrameFor('node-r1', sealUp(pair.node, up.t, up.d, up.id))
   assert.deepEqual(events, [])
   assert.equal(registry.memoryDrops.identity, 1)
 })
