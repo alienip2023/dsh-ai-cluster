@@ -44,7 +44,8 @@ const setupRoutes = read('lib/setup-routes.js')
 /* ═══════════════ 1. role auto 推断（核心）═══════════════ */
 
 test('开箱即用：role 默认 auto（不是 hub，也不是空）', () => {
-  const code = stripComments(read('lib/index.js'))
+  // Config 的 zod 定义已随装配层搬到 lib/plugin/index.js（lib/index.js 只剩转引）。
+  const code = stripComments(read('lib/plugin/index.js'))
   const m = /role:\s*z[\s\S]{0,900}?\.default\((['"])(.*?)\1\)/.exec(code)
   assert.ok(m, '应能解析出 role 的 default')
   assert.equal(m[2], 'auto')

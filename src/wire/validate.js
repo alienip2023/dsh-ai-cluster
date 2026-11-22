@@ -142,12 +142,10 @@ export function validateTaskStart(d) {
         extraEnv: c.extraEnv && typeof c.extraEnv === 'object' ? c.extraEnv : {},
       },
       outputs: Array.isArray(d.outputs) ? d.outputs.filter((p) => typeof p === 'string') : [],
-      // 两阶段审批（提案 #2）：'manual' = hub 挂起待面板批准；缺省时 exec
-      // 任务默认 manual（保守默认，显式传 'auto' 退回旧行为），agent 任务
-      // 默认 auto（agent 会话本身就是交互式的，再卡一道审批只会添堵）。
-      approval: d.approval === 'manual' || d.approval === 'auto'
-        ? d.approval
-        : (mode === TASK_MODE.EXEC ? 'manual' : 'auto'),
+      // 两阶段审批（提案 #2）：'manual' = hub 挂起待面板批准，只在调用方显式
+      // 要求时才启用；缺省（含坏值）一律 'auto'。AC 是用户自己的集群，派给
+      // 副机的任务不该默认卡在"待审批"里（exec 曾默认 manual，已改）。
+      approval: d.approval === 'manual' ? 'manual' : 'auto',
       artifactRules: normalizeArtifactRules(d.artifactRules),
       summaryPolicy: d.summaryPolicy === 'stream' ? 'stream' : 'on-complete',
       requestedAt: typeof d.requestedAt === 'number' ? d.requestedAt : Date.now(),

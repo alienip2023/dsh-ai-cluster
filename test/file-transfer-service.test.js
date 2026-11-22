@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto'
 import { createFileTransferService } from '../lib/node/file-transfer-service.js'
 
 function fixture(t, overrides = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-file-transfer-'))
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-file-transfer-')))
   t.after(() => {
     fs.rmSync(root, { recursive: true, force: true })
   })
@@ -207,7 +207,7 @@ test('abort removes temporary data without publishing the target', (t) => {
 
 test('realpath, roots and denyPaths reject direct and symlink escapes', (t) => {
   const { root, service } = fixture(t)
-  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-file-transfer-outside-'))
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-file-transfer-outside-')))
   t.after(() => fs.rmSync(outside, { recursive: true, force: true }))
   const secret = path.join(outside, 'secret.bin')
   fs.writeFileSync(secret, 'secret')

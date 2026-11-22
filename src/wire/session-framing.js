@@ -81,6 +81,7 @@ const E2E_REQUIRED_TYPES = new Set([
   HUB_TO_NODE.BOT_UPDATE,
   // 停掉节点上的 Bot 回合：帧里带 Bot 身份，与其它 bot/* 帧同口径。
   HUB_TO_NODE.BOT_STOP,
+  HUB_TO_NODE.BOT_STEER,
   // 并发上限下发：与其它控制帧同口径（帧里带节点身份）。
   HUB_TO_NODE.NODE_CONFIG,
   // M2：config-push 携带 apiKey 明文，必须加密。

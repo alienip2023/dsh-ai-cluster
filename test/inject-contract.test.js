@@ -176,8 +176,15 @@ test('回归：applyHub 在缺 tools 的 inject 下**不再抛错**（容错生�
   assert.equal(ctxA.registered.tools.length, 0, '缺 tools 时应没有工具')
   assert.ok(ctxA.registered.routes.length > 0, '缺 tools 时路由仍应注册')
 
-  // 齐全：24 个工具（原 19 + 自检/后台管理/中断 + 文件互传 + 截图）
+  // 工具注册已搬到插件层（src/plugin/index.js 的 registerClusterTools）：applyHub 自己
+  // 只注册高级工具；齐全的 inject 下它们必须注册，核心工具由插件层补齐。
   const ctxB = makeCtx(['webServer', 'tools', 'systemPrompt'])
-  applyHub(ctxB, { role: 'hub', nodeToken: 'nt_x' })
-  assert.equal(ctxB.registered.tools.length, 24, 'inject 齐全时应有 24 个工具')
+  const hB = applyHub(ctxB, { role: 'hub', nodeToken: 'nt_x' })
+  assert.ok(ctxB.registered.tools.length > 0, 'inject 齐全时 applyHub 应注册高级工具')
+  const { registerClusterTools } = await import(new URL('../src/tools/register.js', import.meta.url).href)
+  registerClusterTools({ ctx: ctxB, registry: hB.registry, pulls: hB.pulls, log: () => {}, defaults: {}, sessionGate: hB.sessionGate })
+  const names = new Set(ctxB.registered.tools)
+  for (const name of ['cluster_nodes', 'cluster_task', 'remote_nodes', 'remote_task']) {
+    assert.ok(names.has(name), `插件层应注册 ${name}（remote_* 是 cluster_* 的别名）`)
+  }
 })

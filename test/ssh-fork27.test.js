@@ -28,7 +28,13 @@ test('A 变异验证(M2)：probe.missing 条件出现次数 ≥ 2', () => {
 })
 
 test('A 变异验证：删除安装按钮逻辑后测试红', () => {
-  assert.ok(SRC.includes("sshInstallBusy[alias]"), '应有 sshInstallBusy 状态引用')
+  // 安装按钮的忙碌态：SshProbeCard 从 props.sshInstallBusy 取表，再按 alias 取值来禁用按钮、显示"安装中…"。
+  // （原断言要求出现 `sshInstallBusy[alias]`，而那正是组件里引用了作用域外变量的 bug：
+  //  探测出"缺环境"时渲染抛 ReferenceError。组件内应使用本地的 installBusy / instBusy。）
+  assert.ok(SRC.includes('props.sshInstallBusy'), 'SshProbeCard 应从 props.sshInstallBusy 取忙碌表')
+  assert.match(SRC, /var installBusy = props\.sshInstallBusy \|\| \{\}/, '应落到本地变量 installBusy')
+  assert.match(SRC, /disabled: instBusy,[\s\S]{0,120}instBusy \? '安装中…' : '安装运行环境'/, '安装按钮应按 instBusy 禁用并显示"安装中…"')
+  assert.ok(!/(^|[^.\w])sshInstallBusy\[alias\]\s*\?\s*'安装中…'/.test(SRC.slice(SRC.indexOf('function SshProbeCard'), SRC.indexOf('function TaskQuadrants'))), 'SshProbeCard 内不得再引用作用域外的 sshInstallBusy[alias]')
   assert.ok(SRC.includes('runInstallRuntime'), '应调用 runInstallRuntime 函数')
 })
 

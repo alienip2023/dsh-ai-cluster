@@ -37,7 +37,8 @@ import fs from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
-import { applyHub } from '../lib/hub/index.js'
+import { applyHub, normalizeConfig } from '../lib/hub/index.js'
+import { registerClusterTools } from '../src/tools/register.js'
 import { applyWorker } from '../lib/node/index.js'
 import { PROTOCOL_VERSION, TASK_STATUS } from '../lib/protocol.js'
 import { createRelay, newRelayToken } from '../lib/relay.js'
@@ -252,6 +253,12 @@ async function setup(t, { root, mode, relay, resourceIntervalMs, nodeToken = '' 
     hubConfig.relay = { url: relay.url, token: relay.hubToken }
   }
   const hub = applyHub(hubCtx.ctx, hubConfig)
+  // 工具注册已从 applyHub 搬到插件层（src/plugin/index.js）：测试走同一条装配路径，
+  // 否则 hubCtx 里一个工具都没有（remote_* 是 cluster_* 的别名，同样会被注册）。
+  registerClusterTools({
+    ctx: hubCtx.ctx, registry: hub.registry, pulls: hub.pulls, log: () => {},
+    defaults: normalizeConfig(hubConfig).defaults, sessionGate: hub.sessionGate,
+  })
 
   // ── worker ──────────────────────────────────────────────────────
   const workerCtx = {
@@ -485,17 +492,31 @@ test('hub⇄worker e2e：remote_task dryRun 只出预览，不产生任务', asy
  * 用例 1.6：exec 两阶段审批（提案 #2）—— 批准前副机收不到，批准后跑完
  * ══════════════════════════════════════════════════════════════════ */
 
-test('hub⇄worker e2e：exec 任务默认挂起待审批，批准后才到副机并跑到终态', async (t) => {
+test('hub⇄worker e2e：显式 approval=manual 的 exec 任务挂起待审批，批准后才到副机并跑到终态（缺省 auto 立即派发）', async (t) => {
   const root = tmpRoot(t)
   const relay = await startRelay(t)
   const env = await setup(t, { root, mode: 'relay', relay })
 
-  // exec 缺省 manual：创建即挂起，副机侧不应出现这条任务
+  // 缺省（不传 approval）不再挂起：AC 是用户自己的集群，立即派发并跑到终态。
+  const auto = await env.tool('remote_task')({
+    node: env.nodeId,
+    goal: writeFileCmd('auto.txt', 'ok'),
+    mode: 'exec',
+    workspace: env.wsRoot,
+  })
+  assert.equal(env.hub.registry.getTask(auto.taskId).approval, 'auto')
+  assert.notEqual(auto.status, 'pending_approval')
+  assert.equal(auto.accepted, true)
+  await env.hub.registry.awaitTerminal(auto.taskId, { timeoutMs: 60000 })
+  assert.equal(env.hub.registry.getTask(auto.taskId).status, 'completed')
+
+  // 显式 manual：创建即挂起，副机侧不应出现这条任务
   const r = await env.tool('remote_task')({
     node: env.nodeId,
     goal: writeFileCmd('approved.txt', 'ok'),
     mode: 'exec',
     workspace: env.wsRoot,
+    approval: 'manual',
   })
   assert.equal(r.status, 'pending_approval')
   assert.equal(r.accepted, false)
@@ -917,7 +938,7 @@ test('hub⇄worker e2e：资源遥测到 hub（60ms 间隔贯通全链路）', a
     nodes: [{ nodeId: 'n1', online: true, queue: { queued: 3, running: 4, maxConcurrent: 4, oldestQueuedMs: 180000, starved: true } }],
   })
   assert.match(starvedRender[0].text, /堵死/, 'starved 节点应渲染堵死告警')
-  assert.match(starvedRender[0].text, /remote_cancel/, '告警应给出下一步动作')
+  assert.match(starvedRender[0].text, /(?:remote|cluster)_cancel/, '告警应给出下一步动作（活动路径里叫 cluster_cancel，remote_cancel 是别名）')
   const quietRender = nodesDef.output.render({}, {
     nodes: [{ nodeId: 'n1', online: true, queue: { queued: 0, running: 0, maxConcurrent: 4, oldestQueuedMs: 0, starved: false } }],
   })

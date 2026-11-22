@@ -145,7 +145,7 @@ test('batch：dryRun 逐条预览并校验，不落库、不派发、不自检',
     assert.equal(r.taskId, '')
     assert.equal(r.dryRun, true)
     assert.equal(r.status, 'dry_run')
-    assert.equal(r.approval, i === 0 ? 'auto' : 'manual')
+    assert.equal(r.approval, 'auto')
   }
   assert.equal(out.results[0].workspace, '/srv/work/bots/rb1')
   assert.equal(out.results[2].error.code, 'workspace-escape')
@@ -156,16 +156,21 @@ test('batch：dryRun 逐条预览并校验，不落库、不派发、不自检',
   assert.equal(env.checks.length, 0)
 })
 
-test('batch：approval 省略时逐条按 mode 默认，待审批不算拒绝', async (t) => {
+test('batch：approval 省略时一律 auto；批级显式 manual 才挂起（待审批不算拒绝）', async (t) => {
   const env = setup(t)
   const out = await env.batch({ tasks: [{ goal: 'exec', mode: 'exec' }, { goal: 'agent' }] })
-  assert.equal(out.results[0].status, TASK_STATUS.PENDING_APPROVAL)
-  assert.equal(out.results[0].accepted, false)
-  assert.equal(env.registry.getTask(out.results[0].taskId).approval, 'manual')
+  assert.equal(out.results[0].accepted, true)
+  assert.equal(env.registry.getTask(out.results[0].taskId).approval, 'auto')
   assert.equal(out.results[1].accepted, true)
-  assert.equal(out.accepted, 1)
+  assert.equal(out.accepted, 2)
   assert.equal(out.rejected, 0)
-  assert.equal(env.frames.length, 1)
+  assert.equal(env.frames.length, 2)
+  const guarded = await env.batch({ approval: 'manual', tasks: [{ goal: 'guarded', mode: 'exec' }] })
+  assert.equal(guarded.results[0].status, TASK_STATUS.PENDING_APPROVAL)
+  assert.equal(guarded.results[0].accepted, false)
+  assert.equal(guarded.rejected, 0, '待审批不算拒绝')
+  assert.equal(env.registry.getTask(guarded.results[0].taskId).approval, 'manual')
+  assert.equal(env.frames.length, 2, '挂起的不派帧')
 })
 
 test('batch：显式 approval 覆盖各任务默认值', async (t) => {

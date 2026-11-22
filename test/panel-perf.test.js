@@ -40,8 +40,9 @@ function loadPanel(doc) {
       requests.push(url)
       return Promise.resolve({ ok: true, json: async () => ({ configured: false }) })
     },
-    setInterval(fn, ms) { timers.push({ fn, ms }); return timers.length },
-    clearInterval(id) { cleared.push(id) },
+    // P4 自适应轮询：每次 effect 重建一个 setTimeout（有活跃任务 3s，空闲 8s）。
+    setTimeout(fn, ms) { timers.push({ fn, ms }); return timers.length },
+    clearTimeout(id) { cleared.push(id) },
   }
   if (doc !== undefined) sandbox.document = doc
   vm.runInNewContext(src, sandbox, { filename: 'lib/client.js' })
@@ -50,6 +51,17 @@ function loadPanel(doc) {
     register(slot, component) { if (slot.name === 'main') Panel = component },
   } })
   return { plugin, Panel, effects, timers, cleared, requests }
+}
+
+// 轮询 effect 不再固定是第一个（前面有别的 effect）：按行为找——依次运行，
+// 第一个创建了定时器的就是轮询 effect，返回它的 cleanup。
+function startPolling(panel) {
+  for (const effect of panel.effects) {
+    const before = panel.timers.length
+    const cleanup = effect()
+    if (panel.timers.length > before) return cleanup
+  }
+  assert.fail('应有一个 effect 创建轮询定时器')
 }
 
 function elements(tree) {
@@ -99,14 +111,18 @@ test('P3 CSS: active links and hub have no drop-shadow filters', () => {
 test('P3 polling source: exported 8000ms interval guards load with shouldPoll', () => {
   assert.equal(loadPanel().plugin.POLL_MS, 8000)
   assert.match(code, /const POLL_MS = 8000\b/)
-  assert.match(code, /setInterval\(function\s*\(\)\s*\{\s*if\s*\(!shouldPoll\(typeof document !== 'undefined' \? document : undefined\)\) return\s+load\(\)\s*\}, POLL_MS\)/)
+  // 自适应：空闲 POLL_MS(8s)、有活跃任务 3s；发请求前必须过 shouldPoll（页面隐藏不请求），
+  // 且定时器在 effect 清理时清掉。
+  assert.match(code, /const activePollMs = function \(activeTasks\) \{ return activeTasks > 0 \? 3000 : POLL_MS \}/)
+  assert.match(code, /setTimeout\(function\s*\(\)\s*\{\s*if\s*\(disposed\)\s*return\s*if\s*\(shouldPoll\(typeof document !== 'undefined' \? document : undefined\)\)\s*\{\s*load\(\)/)
+  assert.match(code, /\}, nextDelay\)\s*return function \(\) \{\s*disposed = true\s*clearTimeout\(timer\)/)
 })
 
 test('polling runtime: hidden ticks make no requests; visible ticks resume and cleanup clears timer', async () => {
   const doc = { hidden: false }
   const panel = loadPanel(doc)
   panel.Panel()
-  const cleanup = panel.effects[0]()
+  const cleanup = startPolling(panel)
   await new Promise(resolve => setImmediate(resolve))
   assert.equal(panel.requests.length, 1, 'initial load stays immediate')
   assert.equal(panel.timers.length, 1)
@@ -129,7 +145,7 @@ test('polling runtime: hidden ticks make no requests; visible ticks resume and c
 test('polling runtime: absent document still allows polling', async () => {
   const panel = loadPanel()
   panel.Panel()
-  const cleanup = panel.effects[0]()
+  const cleanup = startPolling(panel)
   await new Promise(resolve => setImmediate(resolve))
   panel.timers[0].fn()
   await new Promise(resolve => setImmediate(resolve))

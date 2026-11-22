@@ -57,6 +57,8 @@ const KEYS = {
     'nodeId', 'online', 'os', 'arch', 'agentMode', 'roots', 'caps', 'since', 'lastSeen',
     'taskCount', 'repos', 'reposAt', 'resource',
     'runnerKind', 'defaultModel', 'models', 'transportMode', 'connectivity', 'peerCapable',
+    // 后加的显式字段（views.js 里逐个类型校验，不是 spread）：主机名 / 直连地址 / 帧往返时延 / 连接确认状态。
+    'hostname', 'peerHost', 'frameRttMs', 'confirm',
   ].sort(),
   finalItemView: ['path', 'kind', 'bytes', 'sha256'].sort(),
   changedItemView: ['op', 'path', 'bytes', 'deltaBytes'].sort(),

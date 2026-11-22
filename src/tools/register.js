@@ -601,7 +601,7 @@ export function registerClusterTools({ ctx, registry, pulls, log: _log, defaults
         goal: { type: 'string', description: '任务目标。mode=agent 时是给副机 agent 的任务书；mode=exec 时是要执行的命令。' },
         workspace: { type: 'string', description: '副机工作区：绝对路径必须在节点 roots 内；相对路径按 roots[0] 解析且不能逃逸（如 bots/rb1）。省略则用节点默认工作区。' },
         mode: { type: 'string', enum: ['agent', 'exec'], description: 'agent=副机起独立 agent 会话（默认）；exec=直接执行命令。' },
-        approval: { type: 'string', enum: ['auto', 'manual'], description: '两阶段审批（提案 #2）：manual=hub 挂起，等面板批准后才派给副机，超时自动拒绝（fail-closed）；auto=立即派发。省略时 exec 默认 manual、agent 默认 auto。' },
+        approval: { type: 'string', enum: ['auto', 'manual'], description: '两阶段审批（提案 #2）：manual=hub 挂起，等面板批准后才派给副机，超时自动拒绝（fail-closed）；auto=立即派发。省略时一律 auto（立即派发）；需要人工把关的任务显式传 manual。' },
         model: {
           type: 'object',
           description:

@@ -94,6 +94,10 @@ function makeCopy(t) {
     'package.json',
     'KNOWN-ISSUES.md',
     'README.md',
+    // identity.titles 断言读 README.en.md（又一次"新增 read 目标没同步清单"）。
+    'README.en.md',
+    // 整个 src/ 目录：检查脚本已经读 src/plugin/index.js，后面还会读别的，别再逐个补。
+    'src',
     'CHANGELOG.md',
     'CONTRIBUTING.md',
     'SECURITY.md',
