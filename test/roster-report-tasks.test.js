@@ -55,8 +55,10 @@ test('cards pass as plain, capped strings; unknown kinds read as other; nothing 
 test('the card list and fields are capped, a wrong type is dropped, an empty list is kept', () => {
   const many = Array.from({ length: 40 }, (_, i) => ({ id: `c${i}`, body: 'x'.repeat(9000), options: Array.from({ length: 20 }, (__, k) => ({ id: `o${k}` })) }))
   const out = cleanRosterCards(many)
+  // 8 cards per Bot and 2000 chars per body: the caps that keep the worst-case roster frame under its byte budget
+  assert.equal(ROSTER_CARD_CAP, 8)
   assert.equal(out.length, ROSTER_CARD_CAP)
-  assert.equal(out[0].body.length, 4000)
+  assert.equal(out[0].body.length, 2000)
   assert.equal(out[0].options.length, 8)
   assert.equal(cleanRosterCards('x'), undefined)
   assert.deepEqual(cleanRosterCards([]), [])
