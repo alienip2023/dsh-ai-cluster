@@ -8,7 +8,7 @@ import path from 'node:path'
 
 const baseline = '58052c9cdb2e2c8ab7058837e8176996a6532f3a'
 // T-ISO-2 and release criterion 4 verify the measured bytes of lib/client.js.
-const clientHash = '6656711e3d1f1c07249a59178661b0eb47273ec0da4833fd7a02199ee12eb9d6'
+const clientHash = '66968a7c460911269ae4785e4c5f001fffd1472a2fbaf5ab12e91a01154c27e0'
 const srcFiles = ['src/compat/dual-provide.js', 'src/compat/ra-names.js']
 const ticketFiles = ['identity.js', 'index.js', 'ledger-file.js', 'snapshot.js', 'store.js']
 const registerTest = 'test/phase1/tool-alias-register.test.js'
@@ -160,7 +160,7 @@ try {
   const p0 = { sha256: sha256(client), expected: clientHash, greps: {
     'memory-hub-scopes': grep(client.toString(), 'memory-hub-scopes'),
     '尚未上报模型': grep(client.toString(), '尚未上报模型'),
-    '"version": "0.4.14"': grep(read(C, 'package.json'), '"version": "0.4.14"'),
+    '"version": "0.4.16"': grep(read(C, 'package.json'), '"version": "0.4.16"'),
   } }
 
   const before = generatedFiles()
@@ -192,7 +192,7 @@ try {
     2: { source: 'artifact-proven', pass: missing.length === 0 && unexpected.length === 0, shipped, missing, unexpected },
     3: { source: 'repo-proven', pass: !buildError && drift.length === 0, build, before: before.size, after: after.size, drift,
       ...(buildError && { buildError }) },
-    4: { source: 'artifact-proven', pass: p0.sha256 === clientHash && pkg.version === '0.4.14' && Object.values(p0.greps).every(Boolean), ...p0 },
+    4: { source: 'artifact-proven', pass: p0.sha256 === clientHash && pkg.version === '0.4.16' && Object.values(p0.greps).every(Boolean), ...p0 },
     5: { source: 'repo-proven', pass: candidate.status === 0 && reference.status === 0 && outputMatches,
       baseline, reference, candidate, outputMatches },
   }
