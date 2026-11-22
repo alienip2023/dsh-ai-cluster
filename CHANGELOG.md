@@ -9,7 +9,11 @@
 
 ---
 
-## 未发布（下一版，配套 ds-bot 分支 feat/node-trace）
+## 0.4.21 — 2026-11-23（配套 ds-bot 0.3.10-fork.101）
+
+- 名册卡片新增不透明的 `data`（JSON 字符串，≤6000 字符，超限整体丢弃；超出帧预算时与正文一起裁掉），主控据此显示并回答节点 Bot 的表单（show_view）；答案走 `bot/action` card-answer 的 `text`（JSON）。
+- 名册里的 Bot 新增 `color`、`avatarShape`、`effort`（非法值只丢该字段，不丢 Bot），主控的节点 Bot 行与节点本机一致。
+- `bot/action` 按 requestId 去重：同一 requestId 重复到达只执行一次并原样回答两次，失败的尝试不记；接收器多收到 `requestId`。
 
 - 新增 `bot/trace`（节点 → 主控，能力 `bot-trace/1`）：节点 Bot 回合里的思考过程与工具步骤送到主控页面，和本地 Bot 的页面一致。回合进行中分批（节流）发出，回合结束时在 `bot/turn-result` 之前再发一帧 `final:true`（带全部步骤，修补丢掉的中间帧）；步骤带回合内单调序号 `i`，主控按 `i` 去重、排序；文本有长度上限（文末写明截掉多少字），条数 / 字节超限丢弃的数量记在 `omitted` / `clipped`；整帧加密（两张必须加密表都有）。
 - `bot/turn` 接收器多一个参数 `{ enabled, trace(payload) }`，返回值里的 `trace: { items, omitted? }` 作为最终步骤；hub welcome 的 `caps` 新增 `bot-trace/1`，节点 hello 的 `caps` 新增 `bot-trace/1`。节点只在 hub 宣告该能力后才发 `bot/trace`，来自对等节点的回合与重放路径不发。

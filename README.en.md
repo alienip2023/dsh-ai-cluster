@@ -2,11 +2,11 @@
 
 [简体中文](README.md)
 
-`dsh-ai-cluster` 0.4.20 is a DSH plugin. The hub uses the AI Cluster Control panel to view nodes and assign tasks. Workers run tasks in their own workspaces and send back the results. The protocol version remains **1**.
+`dsh-ai-cluster` 0.4.21 is a DSH plugin. The hub uses the AI Cluster Control panel to view nodes and assign tasks. Workers run tasks in their own workspaces and send back the results. The protocol version remains **1**.
 
 ## 1. Quick start
 
-Install the plugin from the 0.4.20 `.tgz` on the hub and worker machines running DSH:
+Install the plugin from the 0.4.21 `.tgz` on the hub and worker machines running DSH:
 
 ```sh
 dsh plugin install <tgz>
@@ -78,7 +78,7 @@ The protocol version remains **1**. These are the frames ds-bot and AC use toget
 - **`bot/action`** (hub to node) and **`bot/action-result`**: act on a node Bot's UI state for the user. `action` is `card-answer`, `task-stop`, `task-send` or `task-start`. Needs capability `bot-action/1`; encrypted; a receipt that fails validation settles the requester at once as a failure.
 - **`bot/trace`** (node to hub, capability `bot-trace/1`): the thinking and tool steps of a node Bot's turn, so the hub's page shows them like a local Bot's page. Payload `{ nodeId, remoteBotId, exchangeId, seq, final?, items, omitted? }`: `items` is an append-only log (`{ i, t:'a', think?, calls?, end? }` one model step, `{ i, t:'r', id, ok, out? }` one tool result); the hub dedupes and orders by the step index `i`. Steps go out in throttled batches while the turn runs, and once more as a `final:true` frame, before `bot/turn-result`, carrying every step, which repairs a lost batch. Text fields have caps (an overlong one ends with `…[已截断 N 字]`); steps dropped for the count or byte cap are counted in `omitted` / `clipped`, never silently; the frame is encrypted. A node sends it only once the hub's welcome carries `bot-trace/1`, so an older hub never receives it.
 - **`roster/report`** (node to hub): the node's Bot roster, with each Bot's running-task summary and the **cards** it waits on someone to answer (`cards`, capability `roster-cards/1`; at most 8 per Bot, 2000 characters per body). The whole frame stays within 512 KiB: when over, it trims card bodies, then skill content, then the oldest tasks, then cards, never a Bot, and lists what it trimmed in `trimmed`. An unchanged roster is not resent within 30 seconds.
-- **Capabilities** (`caps` in the node hello): `bot-turn-mode/1`, `bot-action/1`, `roster-cards/1`, `bot-trace/1`; the hub's welcome `caps` carry `memory-sync/1` and `bot-trace/1`. ds-bot reads these capabilities from the node hello before using a feature: a node without one falls back to what it can do and the panel says which node needs AC 0.4.20; unknown capabilities (node not connected, or an older AC that does not report them) count as able, and the node's own refusal is shown as is.
+- **Capabilities** (`caps` in the node hello): `bot-turn-mode/1`, `bot-action/1`, `roster-cards/1`, `bot-trace/1`; the hub's welcome `caps` carry `memory-sync/1` and `bot-trace/1`. ds-bot reads these capabilities from the node hello before using a feature: a node without one falls back to what it can do and the panel says which node needs AC 0.4.21; unknown capabilities (node not connected, or an older AC that does not report them) count as able, and the node's own refusal is shown as is.
 - **Encryption**: once an E2E session exists, a node's uplink conversation and control frames must be encrypted; the hub drops plaintext ones, audits them and answers `e2e-required` (except `hello`, `ping`, `pong`, `error`, the handshake frames and telemetry).
 
 Further reading includes the [deployment guide](profiles/README.md), [known issues](KNOWN-ISSUES.md), [security notes](SECURITY.md), [changelog](CHANGELOG.md), and [MIT license](LICENSE).
