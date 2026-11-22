@@ -202,8 +202,11 @@ test('交换帧签名：任一字段被篡改都验不过', () => {
 test('sealFrame/openFrame：篡改 iv / ct 任一即认证失败', () => {
   const { sN, sH } = makeSessions()
   const env = sN.sealFrame('task/sync', 'm-1', { secret: 'x'.repeat(100) })
-  assert.throws(() => sH.openFrame('task/sync', 'm-1', { ...env, iv: env.iv.slice(0, -2) + 'AA' }))
-  assert.throws(() => sH.openFrame('task/sync', 'm-1', { ...env, ct: env.ct.slice(0, -4) + 'AAAA' }))
+  // Flip one byte (never a fixed replacement string: the random iv/ct could already end in it, 1 run in 4096).
+  const flipLastByte = (b64url) => { const raw = Buffer.from(b64url, 'base64url'); raw[raw.length - 1] ^= 0xff; return raw.toString('base64url') }
+  assert.notEqual(flipLastByte(env.iv), env.iv)
+  assert.throws(() => sH.openFrame('task/sync', 'm-1', { ...env, iv: flipLastByte(env.iv) }))
+  assert.throws(() => sH.openFrame('task/sync', 'm-1', { ...env, ct: flipLastByte(env.ct) }))
   // 标记值不对不算 e2e 帧
   assert.throws(() => sH.openFrame('task/sync', 'm-1', { ...env, e2e: 99 }))
   // 好帧仍然能开（前面失败没有吃掉序号）

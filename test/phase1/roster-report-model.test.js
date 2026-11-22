@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { cleanRosterBots, rosterFrame } from '../../src/roster/report.js'
+import { cleanRosterBots, rosterFrame } from '../../lib/roster-report.js'
 
 test('cleanRosterBots passes a trimmed model, truncates over-long, and drops a bad field', () => {
   // Knife: delete the model pass-through in cleanRosterBots → model is absent and this fails.

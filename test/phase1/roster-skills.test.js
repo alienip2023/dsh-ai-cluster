@@ -3,9 +3,9 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { bindRosterReport, rosterFrame } from '../../src/roster/report.js'
-import { withIngest } from '../../src/roster/registry.js'
-import { NODE_TO_HUB, decodeFrame, encodeFrame, envelope } from '../../src/wire/index.js'
+import { bindRosterReport, rosterFrame } from '../../lib/roster-report.js'
+import { withIngest } from '../../lib/hub/registry-ingest.js'
+import { NODE_TO_HUB, decodeFrame, encodeFrame, envelope } from '../../lib/protocol.js'
 
 const base = { nodeId: 'node-a', hostname: 'desk-1', bots: [{ id: 'bot-a', name: 'Bot A', role: 'test' }] }
 const skill = { id: 'c319668b-2bea-4e99-9b06-b9df719a502b', name: 'review-code', description: 'Review changes', content: 'Read the diff and explain it.' }

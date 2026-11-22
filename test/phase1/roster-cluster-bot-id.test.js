@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { ROSTER_CAP, cleanRosterBots, rosterFrame } from '../../src/roster/report.js'
+import { ROSTER_CAP, cleanRosterBots, rosterFrame } from '../../lib/roster-report.js'
 
 test('valid clusterBotId survives; unknown fields do not', () => {
   const [bot] = cleanRosterBots([{ id: 'b1', name: 'N', role: 'r', clusterBotId: 'cb-1.alpha_2', secret: 'x' }])

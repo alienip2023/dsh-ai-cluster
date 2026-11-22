@@ -19,7 +19,6 @@ export function normalizePeerUrl(raw) {
   if (typeof raw !== 'string' || raw.length > 2048) return ''
   try {
     const url = new URL(raw)
-    // The runtime authority for the canonical peer path is lib/protocol.js.
     if (!['ws:', 'wss:'].includes(url.protocol) || url.username || url.password || url.search || url.hash
       || url.pathname !== '/api/remote-agent/peer') return ''
     return url.href
