@@ -11,7 +11,7 @@ import {
   ERROR_CODE, HUB_TO_NODE, MEMORY, NODE_TO_HUB, PROTOCOL_VERSION,
 } from '../lib/protocol.js'
 import { NodeRegistry } from '../lib/hub/node-registry.js'
-import { createSession, generateEphemeral, E2E_MARKER } from '../lib/e2e.js'
+import { createSession, generateEphemeral } from '../lib/e2e.js'
 import { ROSTER_CAP } from '../lib/roster-report.js'
 
 function sessionPair() {
@@ -59,7 +59,7 @@ test('GATE-1: with an e2e session a plaintext content frame is dropped, audited 
   for (const [type, d] of CONTENT_FRAMES) {
     const w = setup({ e2e: true })
     const events = []
-    for (const name of ['roster', 'botTurnResult', 'botCreateResult', 'botActionResult', 'taskEnd', 'approvalRequest', 'memoryRead']) w.registry.on(name, (e) => events.push(name))
+    for (const name of ['roster', 'botTurnResult', 'botCreateResult', 'botActionResult', 'taskEnd', 'approvalRequest', 'memoryRead']) w.registry.on(name, () => events.push(name))
     w.registry.handleFrameFor('n1', { v: PROTOCOL_VERSION, t: type, id: 'm1', d })
     assert.deepEqual(events, [], `${type}: plaintext must not reach any listener`)
     assert.equal(w.rec.tasks.size, 0, `${type}: no task state`)
