@@ -520,6 +520,10 @@ export function registerUiRoutes({
     if (!n) return null
     return {
       nodeId: n.nodeId,
+      // 拓扑图 / 节点卡要用的地址（与 lib/hub/ui-routes.js 的 uiNodeView 同一口径）：
+      // 缺了它们面板对每个节点只能显示 nodeId，LAN 判定也失效。
+      hostname: n.hostname,
+      peerHost: n.peerHost,
       online: n.online,
       os: n.os,
       arch: n.arch,
