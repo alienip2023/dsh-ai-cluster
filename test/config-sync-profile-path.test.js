@@ -96,7 +96,8 @@ test('unresolved worker profile returns a failure result and ACK without touchin
   assert.equal(ack.data.error, 'profile-unresolved')
   f.sent.length = 0
   await f.push({ schema: 2, revision: 8, providers: [], plugins: [] })
-  assert.deepEqual(f.sent.map(({ type, data }) => [type, data.ok, data.error]), [
+  // The worker's own periodic reports (node/jobs) may land inside the wait: they are not part of the answer.
+  assert.deepEqual(f.sent.filter(({ type }) => type !== 'node/jobs').map(({ type, data }) => [type, data.ok, data.error]), [
     [NODE_TO_HUB.NODE_CONFIG_RESULT, false, 'profile-unresolved'],
     [NODE_TO_HUB.CONFIG_ACK, false, 'profile-unresolved'],
   ])
