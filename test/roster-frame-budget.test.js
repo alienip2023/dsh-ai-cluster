@@ -123,3 +123,15 @@ test('RESEND-2: a failed send is not remembered, the next identical report tries
   assert.equal(report({ bots: [] }), true)
   assert.equal(calls, 2)
 })
+
+test('a card keeps an opaque data string up to its cap; a larger one is dropped whole, and a tight budget drops it with the body', async () => {
+  const { cleanRosterCards, ROSTER_CARD_DATA_CAP, fitRosterFrame } = await import('../lib/roster-report.js')
+  const small = JSON.stringify({ view: { type: 'options' } })
+  const [kept] = cleanRosterCards([{ id: 'view:1', kind: 'view', title: 't', data: small }])
+  assert.equal(kept.data, small)
+  const [dropped] = cleanRosterCards([{ id: 'view:2', kind: 'view', title: 't', data: 'x'.repeat(ROSTER_CARD_DATA_CAP + 1) }])
+  assert.equal('data' in dropped, false)
+  assert.equal('data' in cleanRosterCards([{ id: 'c', kind: 'view', data: 5 }])[0], false, 'not a string: not carried')
+  const frame = { bots: [{ cards: [{ id: 'view:1', body: 'b', data: small, at: 1 }] }] }
+  assert.deepEqual(fitRosterFrame(frame, 10), ['card-bodies', 'cards'])
+})
