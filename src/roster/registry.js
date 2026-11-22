@@ -49,6 +49,7 @@ import {
   validateBotUpdateResult,
   validateBotDeleteResult,
   validateBotStopResult,
+  validateBotActionResult,
   validateMemAck,
   validateMemRead,
   validateMemWrite,
@@ -1079,6 +1080,13 @@ export function withIngest(Base) {
           const checked = validateBotDeleteResult(d)
           if (!checked.ok) return
           try { this.emit('botDeleteResult', checked.result) } catch { /* a listener must not take the ingest path down */ }
+          return
+        }
+
+        case NODE_TO_HUB.BOT_ACTION_RESULT: {
+          const checked = validateBotActionResult(d)
+          if (!checked.ok) return
+          try { this.emit('botActionResult', { ...checked.result, nodeId }) } catch { /* a listener must not take the ingest path down */ }
           return
         }
 

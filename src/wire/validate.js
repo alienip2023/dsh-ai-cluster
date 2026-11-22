@@ -224,6 +224,9 @@ export function validateBotTurn(d) {
     if (value.length > limit) return { ok: false, error: 'bot-turn-room-invalid' }
     room[field] = value
   }
+  // How the sender wants a busy Bot to take it: 'steer' joins the turn in flight, 'queue' waits for
+  // it. Anything else is read as not given (the node then queues, as it always did).
+  const mode = d.mode === 'steer' || d.mode === 'queue' ? { mode: d.mode } : {}
   return {
     ok: true,
     turn: {
@@ -233,6 +236,7 @@ export function validateBotTurn(d) {
       text: d.text,
       ...sender,
       ...room,
+      ...mode,
     },
   }
 }
@@ -598,6 +602,57 @@ export function validateBotStopResult(d) {
       ok: d.ok,
       stopped: d.stopped,
       error: stringOrNull(d.error),
+    },
+  }
+}
+
+/** bot/action 允许的操作。未知操作整帧拒绝，不静默忽略。 */
+export const BOT_ACTIONS = Object.freeze(['card-answer', 'task-stop', 'task-send', 'task-start'])
+
+/**
+ * 校验 bot/action。缺 nodeId / remoteBotId / requestId 或操作未知即拒绝。
+ * params 逐字段过滤：只留 cardId / choice / text / taskId / relation 五个字符串，其余丢弃。
+ * @returns {{ok:true, action:object} | {ok:false, error:string}}
+ */
+export function validateBotAction(d) {
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return { ok: false, error: 'bot-action-missing' }
+  const nodeId = requiredTurnId(d.nodeId, 'bot-action-nodeId-missing')
+  if (!nodeId.ok) return nodeId
+  const remoteBotId = requiredTurnId(d.remoteBotId, 'bot-action-remoteBotId-missing')
+  if (!remoteBotId.ok) return remoteBotId
+  const requestId = requiredTurnId(d.requestId, 'bot-action-requestId-missing')
+  if (!requestId.ok) return requestId
+  if (!BOT_ACTIONS.includes(d.action)) return { ok: false, error: 'bot-action-unknown' }
+  const raw = d.params && typeof d.params === 'object' && !Array.isArray(d.params) ? d.params : {}
+  const params = {}
+  for (const [field, limit] of [['cardId', 200], ['choice', 64], ['text', 4000], ['taskId', 64], ['relation', 16]]) {
+    if (typeof raw[field] === 'string' && raw[field] !== '') params[field] = raw[field].slice(0, limit)
+  }
+  if (d.action === 'card-answer' && (params.cardId === undefined || (params.choice === undefined && params.text === undefined))) {
+    return { ok: false, error: 'bot-action-card-answer-incomplete' }
+  }
+  if ((d.action === 'task-stop' || d.action === 'task-send') && params.taskId === undefined) return { ok: false, error: 'bot-action-taskId-missing' }
+  if (d.action === 'task-send' && params.text === undefined) return { ok: false, error: 'bot-action-text-missing' }
+  if (d.action === 'task-start' && params.text === undefined) return { ok: false, error: 'bot-action-text-missing' }
+  return { ok: true, action: { nodeId: nodeId.value, remoteBotId: remoteBotId.value, requestId: requestId.value, action: d.action, params } }
+}
+
+/**
+ * 校验 bot/action-result。
+ * @returns {{ok:true, result:object} | {ok:false, error:string}}
+ */
+export function validateBotActionResult(d) {
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return { ok: false, error: 'bot-action-result-missing' }
+  const requestId = requiredTurnId(d.requestId, 'bot-action-result-requestId-missing')
+  if (!requestId.ok) return requestId
+  if (typeof d.ok !== 'boolean') return { ok: false, error: 'bot-action-result-ok-missing' }
+  return {
+    ok: true,
+    result: {
+      requestId: requestId.value,
+      ok: d.ok,
+      error: stringOrNull(typeof d.error === 'string' ? d.error.slice(0, 200) : null),
+      detail: typeof d.detail === 'string' ? d.detail.slice(0, 500) : null,
     },
   }
 }

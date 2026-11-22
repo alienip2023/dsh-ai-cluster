@@ -103,6 +103,8 @@ const E2E_REQUIRED_TYPES = new Set([
   // 停掉节点上的 Bot 回合：帧里带 Bot 身份，与其它 bot/* 帧同口径。
   HUB_TO_NODE.BOT_STOP,
   HUB_TO_NODE.BOT_STEER,
+  // 主控对节点 Bot 的界面操作：params 里是用户的回答原文，必须加密。
+  HUB_TO_NODE.BOT_ACTION,
   // 并发上限下发：与其它控制帧同口径（帧里带节点身份）。
   HUB_TO_NODE.NODE_CONFIG,
   // 模型同步：帧里带节点身份与模型 ref，必须加密。

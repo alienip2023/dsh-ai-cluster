@@ -8,6 +8,64 @@ export const ROSTER_CAP = 64
 // This module neither generates nor stores it. See MEMORY-STORE-DESIGN.md section 8.
 const CLUSTER_BOT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 
+// Running background tasks of a Bot (a small read-only summary the hub shows). Anything else is
+// dropped: no sessions, no paths. An empty list is kept (it tells the hub none are running).
+export const ROSTER_TASK_CAP = 8
+const ROSTER_TASK_STATUSES = new Set(['running', 'waiting_approval', 'waiting_work'])
+
+export function cleanRosterTasks(tasks) {
+  if (!Array.isArray(tasks)) return undefined
+  const out = []
+  for (const task of tasks) {
+    if (out.length >= ROSTER_TASK_CAP) break
+    if (!task || typeof task !== 'object') continue
+    const id = typeof task.id === 'string' ? task.id.trim().slice(0, 64) : ''
+    if (id === '' || !ROSTER_TASK_STATUSES.has(task.status)) continue
+    out.push({
+      id,
+      title: typeof task.title === 'string' ? task.title.trim().slice(0, 80) : '',
+      status: task.status,
+      startedAt: Number.isFinite(task.startedAt) ? task.startedAt : 0,
+    })
+  }
+  return out
+}
+
+// Cards a Bot is waiting on someone to answer (a learned-skill proposal, a question, a tool approval…).
+// The node has no screen, so these ride the roster report to the hub, where the user answers them
+// (bot/action → card-answer). Everything is cut down to plain strings and small caps; nothing else
+// the node knows about the card leaves it.
+export const ROSTER_CARD_CAP = 16
+const ROSTER_CARD_KINDS = new Set(['approval', 'question', 'skill', 'rule', 'view', 'secret', 'folder', 'computer', 'other'])
+
+export function cleanRosterCards(cards) {
+  if (!Array.isArray(cards)) return undefined
+  const out = []
+  for (const card of cards) {
+    if (out.length >= ROSTER_CARD_CAP) break
+    if (!card || typeof card !== 'object') continue
+    const id = typeof card.id === 'string' ? card.id.trim().slice(0, 200) : ''
+    if (id === '') continue
+    const options = []
+    for (const option of Array.isArray(card.options) ? card.options : []) {
+      if (options.length >= 8) break
+      const optionId = typeof option?.id === 'string' ? option.id.trim().slice(0, 64) : ''
+      if (optionId === '') continue
+      options.push({ id: optionId, label: typeof option.label === 'string' ? option.label.trim().slice(0, 60) : optionId })
+    }
+    out.push({
+      id,
+      kind: ROSTER_CARD_KINDS.has(card.kind) ? card.kind : 'other',
+      title: typeof card.title === 'string' ? card.title.trim().slice(0, 120) : '',
+      body: typeof card.body === 'string' ? card.body.slice(0, 4000) : '',
+      options,
+      input: card.input === true,
+      at: Number.isFinite(card.at) ? card.at : 0,
+    })
+  }
+  return out
+}
+
 export function cleanRosterBots(bots) {
   const out = []
   if (!Array.isArray(bots)) return out
@@ -30,6 +88,10 @@ export function cleanRosterBots(bots) {
     if (typeof bot.clusterBotId === 'string' && CLUSTER_BOT_ID_RE.test(bot.clusterBotId)) {
       entry.clusterBotId = bot.clusterBotId
     }
+    const tasks = cleanRosterTasks(bot.tasks)
+    if (tasks !== undefined) entry.tasks = tasks
+    const cards = cleanRosterCards(bot.cards)
+    if (cards !== undefined) entry.cards = cards
     out.push(entry)
   }
   return out

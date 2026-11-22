@@ -36,3 +36,29 @@ test('the node frame keeps the tasks', () => {
   assert.deepEqual(frame.bots[0].tasks.map(item => item.id), ['t1'])
   assert.equal(JSON.stringify(frame).includes('secret-session'), false)
 })
+
+import { cleanRosterCards, ROSTER_CARD_CAP } from '../lib/roster-report.js'
+
+test('cards pass as plain, capped strings; unknown kinds read as other; nothing else leaks', () => {
+  const [bot] = cleanRosterBots([{ id: 'b1', name: 'B', cards: [
+    { id: 'c1', kind: 'skill', title: 'Keep this skill?', body: 'text', options: [{ id: 'accept', label: 'Accept', secret: 'x' }, { label: 'no id' }], input: true, at: 9, secretField: 'drop' },
+    { id: 'c2', kind: 'wat', title: 7 },
+    { kind: 'skill' },
+  ] }])
+  assert.deepEqual(bot.cards, [
+    { id: 'c1', kind: 'skill', title: 'Keep this skill?', body: 'text', options: [{ id: 'accept', label: 'Accept' }], input: true, at: 9 },
+    { id: 'c2', kind: 'other', title: '', body: '', options: [], input: false, at: 0 },
+  ])
+  assert.equal(JSON.stringify(bot).includes('secret'), false)
+})
+
+test('the card list and fields are capped, a wrong type is dropped, an empty list is kept', () => {
+  const many = Array.from({ length: 40 }, (_, i) => ({ id: `c${i}`, body: 'x'.repeat(9000), options: Array.from({ length: 20 }, (__, k) => ({ id: `o${k}` })) }))
+  const out = cleanRosterCards(many)
+  assert.equal(out.length, ROSTER_CARD_CAP)
+  assert.equal(out[0].body.length, 4000)
+  assert.equal(out[0].options.length, 8)
+  assert.equal(cleanRosterCards('x'), undefined)
+  assert.deepEqual(cleanRosterCards([]), [])
+  assert.equal('cards' in cleanRosterBots([{ id: 'b1' }])[0], false)
+})
