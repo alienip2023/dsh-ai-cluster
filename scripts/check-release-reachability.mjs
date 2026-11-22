@@ -160,7 +160,7 @@ try {
   const p0 = { sha256: sha256(client), expected: clientHash, greps: {
     'memory-hub-scopes': grep(client.toString(), 'memory-hub-scopes'),
     '尚未上报模型': grep(client.toString(), '尚未上报模型'),
-    '"version": "0.4.18"': grep(read(C, 'package.json'), '"version": "0.4.18"'),
+    '"version": "0.4.19"': grep(read(C, 'package.json'), '"version": "0.4.19"'),
   } }
 
   const before = generatedFiles()
@@ -192,7 +192,7 @@ try {
     2: { source: 'artifact-proven', pass: missing.length === 0 && unexpected.length === 0, shipped, missing, unexpected },
     3: { source: 'repo-proven', pass: !buildError && drift.length === 0, build, before: before.size, after: after.size, drift,
       ...(buildError && { buildError }) },
-    4: { source: 'artifact-proven', pass: p0.sha256 === clientHash && pkg.version === '0.4.18' && Object.values(p0.greps).every(Boolean), ...p0 },
+    4: { source: 'artifact-proven', pass: p0.sha256 === clientHash && pkg.version === '0.4.19' && Object.values(p0.greps).every(Boolean), ...p0 },
     5: { source: 'repo-proven', pass: candidate.status === 0 && reference.status === 0 && outputMatches,
       baseline, reference, candidate, outputMatches },
   }
