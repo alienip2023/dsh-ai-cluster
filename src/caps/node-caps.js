@@ -5,12 +5,19 @@ export const HUB_CAPS = Object.freeze([MEMORY_CAPS])
 export const BOT_MEMORY_UPDATE_CAP = 'bot-memory-update/1'
 /** Profile-only updates require a node that preserves these fields through validation. */
 export const BOT_PROFILE_UPDATE_CAP = 'bot-profile-update/1'
+/** The node takes `mode` (steer | queue) on bot/turn and joins a steer into the running turn. */
+export const BOT_TURN_MODE_CAP = 'bot-turn-mode/1'
+/** The node has a bot/action receiver (answer a card, stop / follow up / start a task). */
+export const BOT_ACTION_CAP = 'bot-action/1'
+/** The node reports the cards its Bots wait on (approvals, questions, proposals) in its roster. */
+export const ROSTER_CARDS_CAP = 'roster-cards/1'
 
 /** 两处 hello 组装（握手与状态视图）都走这里，避免其中一处漏掉新能力。 */
 export function nodeCaps(baseCaps, platform = process.platform) {
   return [
     ...baseCaps,
     'file-transfer', 'selfcheck', 'config-sync/2', 'peer/v1', MEMORY_CAPS, BOT_MEMORY_UPDATE_CAP, BOT_PROFILE_UPDATE_CAP,
+    BOT_TURN_MODE_CAP, BOT_ACTION_CAP, ROSTER_CARDS_CAP,
     ...(platform === 'win32' ? ['desktop', 'gui'] : []),
   ]
 }

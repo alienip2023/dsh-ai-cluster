@@ -402,6 +402,9 @@ test('buildNodeHello：形状正确且能过 validateHello', (t) => {
     'fs', 'exec', 'artifact', 'agent', 'file-transfer', 'selfcheck', 'config-sync/2', 'peer/v1', 'memory-sync/1',
     'bot-memory-update/1',
     'bot-profile-update/1',
+    'bot-turn-mode/1',
+    'bot-action/1',
+    'roster-cards/1',
     ...(process.platform === 'win32' ? ['desktop', 'gui'] : []),
   ])
 

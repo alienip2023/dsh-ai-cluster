@@ -14,6 +14,7 @@ test('cap constants equal', () => {
   assert.equal(newP.MEMORY_CAPS, oldP.MEMORY_CAPS)
   assert.equal(newP.BOT_MEMORY_UPDATE_CAP, oldP.BOT_MEMORY_UPDATE_CAP)
   assert.equal(newP.BOT_PROFILE_UPDATE_CAP, oldP.BOT_PROFILE_UPDATE_CAP)
+  for (const name of ['BOT_TURN_MODE_CAP', 'BOT_ACTION_CAP', 'ROSTER_CARDS_CAP']) assert.equal(newP[name], oldP[name], name)
   assert.deepEqual([...newP.HUB_CAPS], [...oldP.HUB_CAPS])
   assert.ok(Object.isFrozen(newP.HUB_CAPS))
 })
