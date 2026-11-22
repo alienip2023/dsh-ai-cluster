@@ -136,5 +136,11 @@ test('SETTINGS-TOPO', () => {
 })
 
 test('SETTINGS-SCREENS', () => {
-  assert.deepEqual(Array.from(loadView().plugin.P2_SCREENS, entry => entry[0]), screens)
+  // Merged design: bots, models and memory became sections of one 'team' screen, computers became 'nodes'.
+  // `screens` above still lists the legacy ids on purpose: SETTINGS-OPEN checks they all keep rendering the settings
+  // button, and selectHubScreen must keep mapping them onto the merged screens.
+  const { plugin } = loadView()
+  assert.deepEqual(Array.from(plugin.P2_SCREENS, entry => entry[0]), ['nodes', 'tasks', 'team'])
+  const mapped = Object.fromEntries(screens.map(id => [id, plugin.selectHubScreen({ screen: id })]))
+  assert.deepEqual(mapped, { computers: 'nodes', tasks: 'tasks', bots: 'team', models: 'team', memory: 'team' })
 })

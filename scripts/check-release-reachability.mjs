@@ -160,7 +160,9 @@ try {
   const p0 = { sha256: sha256(client), expected: clientHash, greps: {
     'memory-hub-scopes': grep(client.toString(), 'memory-hub-scopes'),
     '尚未上报模型': grep(client.toString(), '尚未上报模型'),
-    '"version": "0.4.20"': grep(read(C, 'package.json'), '"version": "0.4.20"'),
+    // The version is whatever package.json says: only the client hash above is pinned, so a version bump does not
+    // need an edit here (it used to, and the check went stale on every release).
+    [`"version": "${pkg.version}"`]: grep(read(C, 'package.json'), `"version": "${pkg.version}"`),
   } }
 
   const before = generatedFiles()
@@ -192,7 +194,7 @@ try {
     2: { source: 'artifact-proven', pass: missing.length === 0 && unexpected.length === 0, shipped, missing, unexpected },
     3: { source: 'repo-proven', pass: !buildError && drift.length === 0, build, before: before.size, after: after.size, drift,
       ...(buildError && { buildError }) },
-    4: { source: 'artifact-proven', pass: p0.sha256 === clientHash && pkg.version === '0.4.20' && Object.values(p0.greps).every(Boolean), ...p0 },
+    4: { source: 'artifact-proven', pass: p0.sha256 === clientHash && /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(pkg.version) && Object.values(p0.greps).every(Boolean), ...p0 },
     5: { source: 'repo-proven', pass: candidate.status === 0 && reference.status === 0 && outputMatches,
       baseline, reference, candidate, outputMatches },
   }

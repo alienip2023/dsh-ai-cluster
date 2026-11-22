@@ -245,16 +245,21 @@ docs/verification-repos-routing-real.md §4③）。超长值 400 字符截断�
   `remote_pull` 仍只接受 `role:final`。`remote_file fetch` 是用户/Agent 显式
   读取 roots 内文件的独立通道，不会自动搬运工作区。
 
-### exec 两阶段审批：默认挂起，等不到人不跑（提案 #2）
+### exec 两阶段审批：显式 manual 才挂起，等不到人不跑（提案 #2）
 
-`mode:"exec"` 的任务**默认 `approval:"manual"`**：hub 收到派单后挂起，
+**默认值（0.4.19 起）：`exec` 与 `agent` 的缺省都是 `approval:"auto"`**
+（提交 f531ecb，AC 任务不再默认卡在审批上）。要审批必须显式传
+`approval:"manual"`（`remote_task` / `cluster_task` 参数、批量任务的批级
+`approval`、面板派单的 `approval` 字段都认）。显式 manual 的任务：hub 收到
+派单后挂起，
 **副机完全不知道这条任务存在**，直到人在面板上点批准；挂起超过
 `limits.approvalTimeoutMs`（默认 30 分钟）自动拒绝。设计原则是
 **fail-closed**：超时、拒绝、取消都让任务终止，唯一"放行"的路径是人
 明确点批准 —— 绝不存在"没人管就默认执行"。批准时节点恰好掉线 → 任务
 立即转 failed 并给 502，绝不静默退回挂起（那会让"批了但没跑"变成无头案）。
 审计留痕：`approval.pending / granted / rejected` 三类事件进 audit.jsonl。
-想要旧行为显式传 `approval:"auto"`。
+升级前依赖「exec 默认要审批」的部署，请在调用处显式传 `approval:"manual"`；
+只要缺省，exec 现在会立即派发。
 
 ### 仓库清单上报：只报结构，不报凭证（提案 #13）
 

@@ -37,7 +37,7 @@ The hub panel has five tabs for computers, assignments, bots, models, and memory
 
 ## 5. Dispatch and assignment ledger
 
-The hub can dispatch `agent` and `exec` tasks. With `remote_task`, `exec` waits for manual approval by default, and `agent` dispatches automatically by default. A manual approval timeout rejects the task.
+The hub can dispatch `agent` and `exec` tasks. Both `exec` and `agent` dispatch automatically by default (`approval:"auto"`, since 0.4.19). Pass `approval:"manual"` to hold a task for approval in the panel; a manual approval that times out rejects the task.
 
 The standalone hub’s assignment ledger keeps the 200 most recent task-end records by default, including task ID, node, status, and timestamps. With a state directory configured, the ledger persists across restarts and task-list pruning. Use `GET /api/ai-cluster/ui/assignments` to filter by node. The legacy prefix `/api/remote-agent/ui/assignments` also works. The plugin has no daily quota.
 

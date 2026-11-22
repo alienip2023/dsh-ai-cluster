@@ -30,6 +30,13 @@ const ONLY_IN_WIRE_LIVE_ELSEWHERE = {
   WSConnection: libWs, acceptKey: libWs, acceptUpgrade: libWs, connect: libWs,
 }
 
+/**
+ * Same-named exports that differ on purpose. test/phase1/wire-golden-vocab.test.js pins this: src/wire adds
+ * ACL_DENIED (used by src/caps, which only the plugin graph loads); lib/protocol.js and lib/explain-error.js
+ * do not know it. The test below still requires every OTHER code to agree.
+ */
+const DIFFERENT_ON_PURPOSE = { ERROR_CODE: { onlyInWire: ['ACL_DENIED'] } }
+
 const same = (a, b) => (typeof a === 'function' ? a.toString() === b.toString() : JSON.stringify(a) === JSON.stringify(b))
 
 test('DRIFT-1: every name exported by lib/protocol.js exists in src/wire, except the documented ones', () => {
@@ -52,6 +59,7 @@ test('DRIFT-3: same-named constants and validators are identical (frame types, e
   const different = []
   for (const k of Object.keys(lib)) {
     if (!(k in wire)) continue
+    if (k in DIFFERENT_ON_PURPOSE) continue
     if (!same(lib[k], wire[k])) different.push(k)
   }
   assert.deepEqual(different, [], 'differs between lib/protocol.js and src/wire (fix the one that is wrong; both must agree)')
@@ -62,4 +70,12 @@ test('DRIFT-4: bot/directory keeps rooms on both sides', () => {
   for (const impl of [lib, wire]) {
     assert.deepEqual(impl.validateBotDirectory(d), { bots: [{ id: 'b', name: 'B', nodeId: 'n', role: '' }], rooms: [{ id: 'r1', name: 'Room', members: 3 }], at: 5 })
   }
+})
+
+test('DRIFT-5: the intentional differences are exactly the documented ones', () => {
+  const { onlyInWire } = DIFFERENT_ON_PURPOSE.ERROR_CODE
+  const rest = { ...wire.ERROR_CODE }
+  for (const k of onlyInWire) { assert.ok(k in rest, `${k} left src/wire: drop it from the allow-list`); delete rest[k] }
+  assert.deepEqual(rest, { ...lib.ERROR_CODE })
+  for (const k of onlyInWire) assert.equal(k in lib.ERROR_CODE, false)
 })

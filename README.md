@@ -37,7 +37,7 @@ dsh plugin install <tgz>
 
 ## 五、派单与分配台账
 
-主机可派发 `agent` 或 `exec` 任务。通过 `remote_task` 派单时，`exec` 默认等待人工批准，`agent` 默认自动派发。手动审批超时会拒绝该任务。
+主机可派发 `agent` 或 `exec` 任务。`exec` 与 `agent` 默认都自动派发（`approval:"auto"`，0.4.19 起）；需要人工把关时显式传 `approval:"manual"`，任务会挂起等面板批准，审批超时会拒绝该任务。
 
 独立 hub 的分配台账默认保留最近 200 条任务结束记录，包含任务 ID、节点、状态和时间。配置状态目录后，台账落盘，可在重启和清理任务列表后查阅。通过 `GET /api/ai-cluster/ui/assignments` 可按节点筛选，旧前缀 `/api/remote-agent/ui/assignments` 同样可用。插件没有每日配额。
 

@@ -144,7 +144,8 @@ test('source: client posts the four memory endpoints to /api/bot; the old stub i
 })
 
 test('source: the memory effect depends on the poll tick and is in-flight guarded', () => {
-  const start = src.indexOf("if (activeScreen !== 'memory') return")
+  // Merged design: memory is a section of the 'team' screen, so the effect guard is `!== 'team'`.
+  const start = src.indexOf("if (activeScreen !== 'team') return")
   assert.ok(start >= 0, 'memory effect must exist')
   const end = src.indexOf('\n      }, [', start)
   const deps = src.slice(end, src.indexOf(')', end + 8) + 1)

@@ -172,7 +172,9 @@ test('source (p3-s1a): bots fetch is not once-only and its effect depends on the
   const end = clientSrc.indexOf('\n      }, [', start)
   const slice = clientSrc.slice(start, end)
   const deps = clientSrc.slice(end, clientSrc.indexOf(')', end + 8) + 1)
-  const botsBranch = slice.slice(slice.indexOf("activeScreen === 'bots'"), slice.indexOf("activeScreen === 'memory'"))
+  // Merged design: the bots fetch is the first 'team' branch (own in-flight ref), followed by the models fetch.
+  const botsBranch = slice.slice(slice.indexOf("activeScreen === 'team' && !botsInflight.current"), slice.indexOf("activeScreen === 'team' && !modelsInflight.current"))
+  assert.ok(botsBranch.length > 0, 'bots branch exists')
   assert.match(botsBranch, /apiGet\('\/bots'\)/)
   assert.doesNotMatch(botsBranch, /screenFetched/)
   assert.doesNotMatch(clientSrc, /screenFetched\s*=\s*React\.useRef\(\{\s*bots/)

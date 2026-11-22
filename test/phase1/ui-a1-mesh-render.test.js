@@ -396,8 +396,10 @@ test('wiring: 真实 overview → loader → Panel → 拓扑板入参；刷新�
           if (failOverview && u.endsWith('/ui/overview')) return Promise.resolve({ ok: false, status: 500, json: async () => ({ error: 'overview-failed' }) })
           return Promise.resolve({ ok: true, status: 200, json: async () => (u in bodies ? bodies[u] : {}) })
         },
-        setInterval(fn, ms) { timers.push({ fn, ms }); return timers.length },
-        clearInterval() {},
+        // The hub poll is a self-rescheduling setTimeout now (3 s while tasks are active, 8 s idle, re-armed
+        // whenever `tick` or the active count changes), not a setInterval: capture timeouts and pick the idle one.
+        setTimeout(fn, ms) { timers.push({ fn, ms }); return timers.length },
+        clearTimeout() {},
       },
     })
     const render = () => { sr.begin(); const t = Panel(); sr.end(); return t }
@@ -422,9 +424,10 @@ test('wiring: 真实 overview → loader → Panel → 拓扑板入参；刷新�
     sr.slots[0].value = { ...sr.slots[0].value, computersMode: 'topo' }
 
     // 8 秒轮询：overview 失败 → 保留最后成功的数据 + 错误
-    assert.equal(timers.length > 0 && timers[0].ms, 8000)
+    const poll = timers.find((t) => t.ms === 8000)
+    assert.ok(poll, 'an idle hub arms an 8 s poll timeout')
     failOverview = true
-    timers[0].fn()
+    poll.fn()
     await new Promise((r) => setTimeout(r, 60))
     const st = sr.slots[0].value
     assert.ok(st.error, '失败应记录错误')
@@ -440,7 +443,7 @@ test('wiring: 真实 overview → loader → Panel → 拓扑板入参；刷新�
     assert.ok(byStartClass(stale, 'dra-mesh-edge').length > 0, '固定的节点在陈旧数据上仍显示预览')
     // 恢复：下一轮成功，错误清除
     failOverview = false
-    timers[0].fn()
+    poll.fn()
     await new Promise((r) => setTimeout(r, 60))
     assert.equal(sr.slots[0].value.error, '')
   } finally {
