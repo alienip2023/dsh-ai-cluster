@@ -48,7 +48,8 @@
   "main": "./lib/index.js",
   "bin": {
     "dsh-remote-relay": "bin/dsh-remote-relay.js",
-    "dsh-remote-setup": "bin/dsh-remote-setup.js"
+    "dsh-remote-setup": "bin/dsh-remote-setup.js",
+    "dsh-node-daemon": "bin/dsh-node-daemon.mjs"
   },
   "files": [
     "lib",
