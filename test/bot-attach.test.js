@@ -246,13 +246,15 @@ test('bot/turn: handleBotTurnFrame hands the manifest to the receiver untouched;
   const received = []
   const errors = []
   const results = []
-  const ctx = { get: (key) => (key === 'remote-agent:bot-turn' ? async (t) => { received.push(t); return { text: 'ok' } } : undefined) }
+  const ctx = { get: (key) => (key === 'remote-agent:bot-turn' ? async (t) => { received.push(t); return { text: 'ok' } } : key === 'remote-agent:bot-attach' ? () => {} : undefined) }
   const manifest = [entry({ name: ' cat.png ' })]
   await handleBotTurnFrame({ frame: { id: 'f1' }, data: turn({ attachments: manifest }), ctx, send: (t, d) => { results.push({ t, d }) }, sendError: (...a) => errors.push(a), engine: {}, retryDelaysMs: [] })
   assert.deepEqual(received[0].attachments, [{ ...manifest[0], name: 'cat.png' }])
   assert.equal(results.at(-1).d.ok, true)
-  await handleBotTurnFrame({ frame: { id: 'f2' }, data: turn({ attachments: [entry({ bytes: 0 })] }), ctx, send: () => {}, sendError: (...a) => errors.push(a), engine: {}, retryDelaysMs: [] })
+  const answers = []
+  await handleBotTurnFrame({ frame: { id: 'f2' }, data: turn({ attachments: [entry({ bytes: 0 })] }), ctx, send: (t, d) => { answers.push({ t, d }) }, sendError: (...a) => errors.push(a), engine: {}, retryDelaysMs: [] })
   assert.equal(received.length, 1, 'the receiver never saw the bad turn')
+  assert.deepEqual([answers[0].t, answers[0].d.ok, answers[0].d.error], ['bot/turn-result', false, 'bot-turn-attachments-invalid'], 'and the hub is told, not left waiting')
   assert.equal(errors.length, 1)
   assert.equal(errors[0][1], 'bot-turn-attachments-invalid')
 })
@@ -468,4 +470,34 @@ test('BA-audit-2: bot/attach is not sent to a node without an e2e session (the u
   assert.equal(registry.send('n1', 'bot/attach', chunk), true)
   assert.equal(wire.length, 1)
   assert.equal(wire[0].includes('QUJD'), false, 'the payload is sealed')
+})
+
+// ── audit round: never silent ─────────────────────────────────────────────────────────────────
+
+test('BA-audit-3: a turn with attachments on a node whose ds-bot has no chunk receiver is refused with the reason, not run as plain text', async () => {
+  const { handleBotTurnFrame } = await import('../lib/bot-turn.js')
+  const sent = []
+  let ran = 0
+  const ctx = { get: (name) => (name === 'remote-agent:bot-turn' ? async () => { ran += 1; return { ok: true, text: 'x' } } : undefined) }
+  const turn = { nodeId: 'n1', remoteBotId: 'b1', exchangeId: 'e1', text: 'look', attachments: [{ index: 0, name: 'a.png', kind: 'image', bytes: 5, sha256: 'a'.repeat(64), chunks: 1 }] }
+  const out = await handleBotTurnFrame({ frame: { id: 'f' }, data: turn, ctx, send: (type, frame) => { sent.push({ type, frame }); return true }, sendError() {}, turnSeq: { next: () => 1 }, retryDelaysMs: [] })
+  assert.equal(out.accepted, false)
+  assert.equal(ran, 0, 'the Bot was not run on the words alone')
+  assert.equal(sent[0].type, 'bot/turn-result')
+  assert.deepEqual([sent[0].frame.ok, sent[0].frame.error, sent[0].frame.exchangeId], [false, 'bot-attach-no-receiver', 'e1'])
+})
+
+test('BA-audit-4: an invalid turn that names its exchange is answered with a failed result, so the hub does not wait out the timeout', async () => {
+  const { handleBotTurnFrame } = await import('../lib/bot-turn.js')
+  const sent = []
+  const errors = []
+  const turn = { nodeId: 'n1', remoteBotId: 'b1', exchangeId: 'e2', text: 'x', attachments: [{ index: 0, name: 'a', kind: 'file', bytes: 5, sha256: 'bad', chunks: 1 }] }
+  const out = await handleBotTurnFrame({ frame: { id: 'f' }, data: turn, ctx: { get: () => undefined }, send: (type, frame) => { sent.push({ type, frame }); return true }, sendError: (...args) => errors.push(args), retryDelaysMs: [] })
+  assert.equal(out.error, 'bot-turn-attachments-invalid')
+  assert.equal(errors.length, 1, 'the error frame still goes out')
+  assert.deepEqual([sent[0].type, sent[0].frame.ok, sent[0].frame.error], ['bot/turn-result', false, 'bot-turn-attachments-invalid'])
+  // a frame that names nothing is only an error frame
+  sent.length = 0
+  await handleBotTurnFrame({ frame: { id: 'f' }, data: { text: 'x' }, ctx: { get: () => undefined }, send: (type) => { sent.push(type); return true }, sendError() {}, retryDelaysMs: [] })
+  assert.deepEqual(sent, [])
 })
