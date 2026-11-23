@@ -9,6 +9,13 @@
 
 ---
 
+## 0.4.27 — 2026-11-23（节点模型能力不再丢失；ds-bot 无需改动）
+
+- **问题**：hub 推送配置时，`lib/node/config-sync.js` 只把每个模型落成 `{id, name}`（源码里的注释就写着「模型字段补全在 P1b-2 才由节点落盘」，这一步一直没做）。主控（ds-bot `config-v2.js`）发来的 `contextWindow`、`maxTokens`、`input`、`reasoningEfforts` 都被丢掉，pi-ai 对没声明 `input` 的模型按「只有文本」处理，所以节点上的模型读不了图片，也没有思考档位。
+- **处理**：节点按 pi-ai 自己的 schema 校验后落盘：`contextWindow` / `maxTokens`（正整数）、`input`（非空、只含 text / image、不重复）、`reasoningEfforts`（`false`，或档位 ∈ off/minimal/low/medium/high/xhigh/max、除 off 外取值为非空字符串、至少一个 off 以外的档位）；provider 级落 `displayName` 和 `streamIdleTimeoutMs`。**不合格的字段整个丢掉**（回到 pi-ai 的默认），不写半截——pi-ai 对写错的字段会拒绝整条路线，节点的 LLM 就起不来。`compat` 和 `headers` 不落盘。
+- **摘要包含这些字段**：模型能力变了，节点会按「需要重启」处理（DSH 启动时才读模型）；只有 `{id, name}` 的模型摘要与旧版逐字节相同，升级本身不会引发多余的重启。
+- 另：`model-catalog.js` 读取的是运行时目录里的 `reasoningEfforts` 数组 `[{id, name}]`，与配置文件里的映射 `{level: 取值}` 不是同一处代码消费的两种形状，互不影响；节点配置落盘之后，运行时目录会带上这些档位，主控的模型选择器因此能看到它们。
+
 ## 0.4.26 — 2026-11-23（D2：监听端口被自家旧实例占住；附件发送加固）
 
 - **附件不再静默变成纯文字**：节点上的 ds-bot 如果没有注册 `bot/attach` 接收方（旧版 ds-bot 配新 AC），带附件的 `bot/turn` 现在被拒绝并回 `bot-attach-no-receiver`；`bot/turn` 校验失败（比如附件清单不合格）时，除了错误帧，还会回一条失败的 `bot/turn-result`，页面立刻说明原因，不再等满回合超时。
