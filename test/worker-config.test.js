@@ -409,6 +409,9 @@ test('buildNodeHello：形状正确且能过 validateHello', (t) => {
     'bot-stream/1',
     'bot-attach/1',
     'config-models/1',
+    'lan-discovery/1',
+    'pairing/1',
+    'machine-identity/1',
     ...(process.platform === 'win32' ? ['desktop', 'gui'] : []),
   ])
 

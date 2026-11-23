@@ -9,6 +9,37 @@
 
 ---
 
+## 0.4.31 — 2026-11-24（与 ds-bot 0.3.10-fork.111 配套）
+
+**Step 1：Network Layer — 机器身份、LAN 发现、配对码、守护进程**
+
+- `lib/identity/machine-identity.js`：持久 ed25519 机器身份，machineId 由公钥派生，重启/重装不变；`MachineIdentity` 类提供 sign/verify。
+- `lib/network/discovery/lan-beacon.js`：UDP multicast 224.0.0.251:8129，同网段零配置发现；15s 广播，45s TTL，emit `peer`/`peer-lost` 事件。
+- `lib/network/pairing/trust-store.js`：配对关系持久化到 `~/.dsh/trust.json`，存 pubKey + secret + alias。
+- `lib/network/pairing/pairing-server.js`：6 位配对码服务，ws://0.0.0.0:8125，5 分钟有效，DH 派生 shared secret。
+- `lib/network/pairing/pairing-client.js`：输入配对码发起握手，完成后写入 TrustStore。
+- `lib/network/transport/router.js`：集成 beacon + trust-store + peer-link，LAN 发现自动更新 peer router directory 和 credentials。
+- `bin/dsh-node-daemon.mjs`：守护进程，指数退避重启（1s→60s），支持 `install`（launchd/systemd）/ `start` / `stop` / `status`。
+
+**Step 2：Bot 持久化层**
+
+- `lib/identity/bot-identity.js`：Bot 独立于机器的 ed25519 身份，身份文件可跨机器迁移。
+- `lib/persist/agent-journal.js`：append-only 步骤日志（turn/start, step/model, step/tool, turn/end），`findIncomplete()` 支持崩溃续跑。
+- `lib/persist/checkpoint.js`：原子状态快照（tmp+rename），load/save 轮转。
+
+**协议扩展**
+
+- `NODE_TO_HUB`：新增 `MACHINE_BEACON`（`machine/beacon`）、`PEER_PAIRED`（`peer/paired`）。
+- `HUB_TO_NODE`：新增 `PEER_DIRECTORY_V2`（`peer/directory-v2`）、`BOT_LOCATE`（`bot/locate`）。
+- 新能力位：`LAN_DISCOVERY_CAP`（`lan-discovery/1`）、`PAIRING_CAP`（`pairing/1`）、`MACHINE_IDENTITY_CAP`（`machine-identity/1`），已加入 `nodeCaps()`。
+- `src/caps/node-caps.js` 同步以上三个常量和 `nodeCaps()` 更新。
+
+**E2E 修复（来自 0.4.30 hotfix）**
+
+- `node-registry.js`：`bot/turn` 发送前检查 E2E 状态，未建立时立刻 false（bridge-down）。
+- `transport.js`：节点丢弃加密帧时通过明文通道回告 hub（`e2e-not-ready`）。
+- `registry-ingest.js`：hub 收到 `e2e-not-ready` 时合成 `botTurnResult{ok:false,error:'bridge-down'}` 通知 sender。
+
 ## 0.4.30 — 2026-11-24（与 ds-bot 0.3.10-fork.110 配套）
 
 - 新增帧 `bot/stream`（`NODE_TO_HUB.BOT_STREAM`）和能力 `bot-stream/1`：节点 Bot 在回合中把模型的文本增量实时转发给主控，主控逐字渲染，体验与本地 Bot 一致。旧主控不认识此帧；节点仅在主控 welcome 宣告 `bot-stream/1` 后才发。帧列入 E2E_REQUIRED（加密传输）。
