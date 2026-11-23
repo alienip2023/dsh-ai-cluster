@@ -76,6 +76,8 @@ test('lock: path, profile tag, mode, parsing and owner-only cleanup', (t) => {
   assert.equal(lockPath(dir, 19387), path.join(dir, '.dsh', 'ai-cluster', 'hub-19387.lock.json'))
   assert.equal(profileTag('/example', {}), '99d0533064c8')
   assert.notEqual(profileTag('/example', { DSH_PROFILE: 'web' }), profileTag('/example', { DSH_PROFILE: 'desktop' }), 'two profiles of one user are two instances')
+  assert.notEqual(profileTag('/example', {}, '/example/.dsh/profiles/desktop'), profileTag('/example', {}, '/example/.dsh/profiles/safe'), 'desktop profiles carry no env: the resolved profile directory tells them apart')
+  assert.equal(profileTag('/example', {}, ''), '99d0533064c8', 'no resolvable profile keeps the old tag')
   assert.equal(readLock(file), null)
   assert.equal(writeLock(file, lock), file)
   assert.deepEqual(readLock(file), lock)
