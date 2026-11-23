@@ -2,11 +2,11 @@
 
 [简体中文](README.md)
 
-`dsh-ai-cluster` 0.4.23 is a DSH plugin. The hub uses the AI Cluster Control panel to view nodes and assign tasks. Workers run tasks in their own workspaces and send back the results. The protocol version remains **1**.
+`dsh-ai-cluster` 0.4.24 is a DSH plugin. The hub uses the AI Cluster Control panel to view nodes and assign tasks. Workers run tasks in their own workspaces and send back the results. The protocol version remains **1**.
 
 ## 1. Quick start
 
-Install the plugin from the 0.4.23 `.tgz` on the hub and worker machines running DSH:
+Install the plugin from the 0.4.24 `.tgz` on the hub and worker machines running DSH:
 
 ```sh
 dsh plugin install <tgz>
