@@ -205,6 +205,95 @@ export function validateBotDirectory(d) {
 }
 
 /**
+ * bot/attach 与 bot/turn.attachments 清单的上限（hub 发图片/文件给节点 Bot，能力 bot-attach/1）。
+ * 附件按块经 bot/attach 先到，随后的 bot/turn 用 attachments 清单点名它们。
+ */
+export const BOT_ATTACH_LIMITS = Object.freeze({
+  maxAttachments: 8,
+  maxChunks: 40,
+  maxChunkChars: 1_100_000,
+  maxNameChars: 200,
+  maxMediaTypeChars: 64,
+  maxBytes: 20 * 1024 * 1024,
+})
+
+const BASE64_CHARSET = /^[A-Za-z0-9+/]*={0,2}$/
+const SHA256_HEX = /^[0-9a-f]{64}$/
+
+function boundedInteger(value, min, max) {
+  return typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max
+}
+
+/**
+ * 校验 bot/attach：hub → 节点的一块附件字节。同一 exchangeId 的第 index 个附件分 chunks 块，
+ * chunk 从 0 起。没有结果帧；校验失败由处理方回 error 帧。
+ * @returns {{ok:true, attach:object} | {ok:false, error:string}}
+ */
+export function validateBotAttach(d) {
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return { ok: false, error: 'bot-attach-missing' }
+  const nodeId = requiredTurnId(d.nodeId, 'bot-attach-nodeId-missing')
+  if (!nodeId.ok) return nodeId
+  const remoteBotId = requiredTurnId(d.remoteBotId, 'bot-attach-remoteBotId-missing')
+  if (!remoteBotId.ok) return remoteBotId
+  const exchangeId = requiredTurnId(d.exchangeId, 'bot-attach-exchangeId-missing')
+  if (!exchangeId.ok) return exchangeId
+  const limits = BOT_ATTACH_LIMITS
+  if (!boundedInteger(d.index, 0, limits.maxAttachments - 1)) return { ok: false, error: 'bot-attach-index-invalid' }
+  if (!boundedInteger(d.chunks, 1, limits.maxChunks)) return { ok: false, error: 'bot-attach-chunks-invalid' }
+  if (!boundedInteger(d.chunk, 0, d.chunks - 1)) return { ok: false, error: 'bot-attach-chunk-invalid' }
+  if (typeof d.data !== 'string' || d.data === '') return { ok: false, error: 'bot-attach-data-missing' }
+  if (d.data.length > limits.maxChunkChars) return { ok: false, error: 'bot-attach-data-too-large' }
+  if (!BASE64_CHARSET.test(d.data)) return { ok: false, error: 'bot-attach-data-invalid' }
+  return {
+    ok: true,
+    attach: {
+      nodeId: nodeId.value,
+      remoteBotId: remoteBotId.value,
+      exchangeId: exchangeId.value,
+      index: d.index,
+      chunk: d.chunk,
+      chunks: d.chunks,
+      data: d.data,
+    },
+  }
+}
+
+/**
+ * bot/turn 的 attachments 清单。缺省 / null / 空数组 = 没有附件（返回 []）；
+ * 任何一条不合格都返回 null，调用方整帧拒绝，绝不悄悄丢掉某一条。
+ */
+function cleanBotAttachments(raw) {
+  if (raw === undefined || raw === null) return []
+  const limits = BOT_ATTACH_LIMITS
+  if (!Array.isArray(raw) || raw.length > limits.maxAttachments) return null
+  const seen = new Set()
+  const out = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return null
+    if (!boundedInteger(item.index, 0, limits.maxAttachments - 1) || seen.has(item.index)) return null
+    if (typeof item.name !== 'string') return null
+    const name = item.name.trim()
+    if (name === '' || name.length > limits.maxNameChars) return null
+    if (item.kind !== 'image' && item.kind !== 'file') return null
+    if (item.mediaType !== undefined && (typeof item.mediaType !== 'string' || item.mediaType.length > limits.maxMediaTypeChars)) return null
+    if (!boundedInteger(item.bytes, 1, limits.maxBytes)) return null
+    if (typeof item.sha256 !== 'string' || !SHA256_HEX.test(item.sha256)) return null
+    if (!boundedInteger(item.chunks, 1, limits.maxChunks)) return null
+    seen.add(item.index)
+    out.push({
+      index: item.index,
+      name,
+      kind: item.kind,
+      ...(typeof item.mediaType === 'string' && item.mediaType !== '' ? { mediaType: item.mediaType } : {}),
+      bytes: item.bytes,
+      sha256: item.sha256,
+      chunks: item.chunks,
+    })
+  }
+  return out
+}
+
+/**
  * 校验 bot/turn。缺 nodeId / remoteBotId / exchangeId / text 即拒绝。
  * 不读 mode，不改写成 agent，不调用 validateTaskStart。
  * @returns {{ok:true, turn:object} | {ok:false, error:string}}
@@ -237,6 +326,11 @@ export function validateBotTurn(d) {
   // How the sender wants a busy Bot to take it: 'steer' joins the turn in flight, 'queue' waits for
   // it. Anything else is read as not given (the node then queues, as it always did).
   const mode = d.mode === 'steer' || d.mode === 'queue' ? { mode: d.mode } : {}
+  // Images / files the hub put on the link as bot/attach chunks just before this turn (bot-attach/1).
+  // One bad entry rejects the whole turn: an attachment is never dropped on the way.
+  const attachmentList = cleanBotAttachments(d.attachments)
+  if (attachmentList === null) return { ok: false, error: 'bot-turn-attachments-invalid' }
+  const attachments = attachmentList.length > 0 ? { attachments: attachmentList } : {}
   return {
     ok: true,
     turn: {
@@ -247,6 +341,7 @@ export function validateBotTurn(d) {
       ...sender,
       ...room,
       ...mode,
+      ...attachments,
     },
   }
 }

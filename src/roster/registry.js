@@ -74,6 +74,15 @@ import { cleanRosterSkills } from './report.js'
 const errText = (err) => String(err?.message ?? err ?? 'unknown error')
 const numOr = (v, fallback) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
 
+/**
+ * A bot/turn that names attachments follows its bot/attach chunks, which always travel on the hub link
+ * (bot/attach is not a peer bot type). Sending that turn over a peer-direct socket could overtake the chunks,
+ * so it takes the hub link too: one connection, so the chunks are in front of the turn.
+ */
+function carriesAttachments(type, data) {
+  return type === 'bot/turn' && Array.isArray(data?.attachments) && data.attachments.length > 0
+}
+
 export const E2E_HEAL_DEFAULTS = Object.freeze({
   /** First attempt after the node shows up without a session; each further attempt doubles the wait. */
   baseMs: 2_000,
@@ -305,7 +314,7 @@ class RosterCore extends EventEmitter {
    * 节点有 E2E 会话（提案 #1）时 d 字段自动封密（上述明文白名单除外）。
    */
   send(nodeId, type, data, opts = {}) {
-    if (this.peerRouter && this.isPeerBotTypeFn(type) && this.nodes.get(nodeId)?.online) {
+    if (this.peerRouter && !carriesAttachments(type, data) && this.isPeerBotTypeFn(type) && this.nodes.get(nodeId)?.online) {
       return this.peerRouter.send(nodeId, type, data, opts)
     }
     return this.sendViaHub(nodeId, type, data, opts)

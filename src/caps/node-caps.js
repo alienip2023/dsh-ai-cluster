@@ -14,6 +14,8 @@ export const BOT_PROFILE_UPDATE_CAP = 'bot-profile-update/1'
 export const BOT_TURN_MODE_CAP = 'bot-turn-mode/1'
 /** The node has a bot/action receiver (answer a card, stop / follow up / start a task). */
 export const BOT_ACTION_CAP = 'bot-action/1'
+/** The node takes bot/attach chunks and a `bot/turn.attachments` manifest (images and files from the hub). */
+export const BOT_ATTACH_CAP = 'bot-attach/1'
 /** The node reports the cards its Bots wait on (approvals, questions, proposals) in its roster. */
 export const ROSTER_CARDS_CAP = 'roster-cards/1'
 
@@ -22,7 +24,7 @@ export function nodeCaps(baseCaps, platform = process.platform) {
   return [
     ...baseCaps,
     'file-transfer', 'selfcheck', 'config-sync/2', 'peer/v1', MEMORY_CAPS, BOT_MEMORY_UPDATE_CAP, BOT_PROFILE_UPDATE_CAP,
-    BOT_TURN_MODE_CAP, BOT_ACTION_CAP, ROSTER_CARDS_CAP, BOT_TRACE_CAP,
+    BOT_TURN_MODE_CAP, BOT_ACTION_CAP, ROSTER_CARDS_CAP, BOT_TRACE_CAP, BOT_ATTACH_CAP,
     ...(platform === 'win32' ? ['desktop', 'gui'] : []),
   ]
 }

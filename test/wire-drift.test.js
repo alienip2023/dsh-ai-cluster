@@ -21,6 +21,7 @@ const ONLY_IN_LIB = {
   MEMORY_CAPS: 'capability flags: see BOT_ACTION_CAP',
   ROSTER_CARDS_CAP: 'capability flags: see BOT_ACTION_CAP',
   BOT_TRACE_CAP: 'capability flags: see BOT_ACTION_CAP',
+  BOT_ATTACH_CAP: 'capability flags: see BOT_ACTION_CAP',
   nodeCaps: 'capability flags: see BOT_ACTION_CAP',
 }
 /** src/wire/index.js re-exports session-framing and ws; lib keeps those in lib/node/transport.js and lib/ws.js. */

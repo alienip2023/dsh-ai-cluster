@@ -15,6 +15,7 @@ import { handleBotDeleteFrame } from '../../lib/bot-delete.js'
 import { handleBotStopFrame } from '../../lib/bot-stop.js'
 import { handleBotSteerFrame } from '../../lib/bot-steer.js'
 import { handleBotActionFrame } from '../../lib/bot-action.js'
+import { handleBotAttachFrame } from '../../lib/bot-attach.js'
 import { createTurnSeq } from '../../lib/node/turn-seq.js'
 import { createTurnReplay } from '../../lib/node/turn-replay.js'
 
@@ -71,6 +72,10 @@ export function createFrameDispatcher({ ctx, send, sendError, engine, logger, st
         return true
       case HUB_TO_NODE.BOT_ACTION:
         swallow(handleBotActionFrame({ frame, data, ctx, send, sendError }))
+        return true
+      case HUB_TO_NODE.BOT_ATTACH:
+        // Synchronous on purpose: the chunks must be registered before the bot/turn that follows on the same link.
+        handleBotAttachFrame({ frame, data, ctx, send, sendError, logger })
         return true
       // P1 模型同步帧：hub 是模型 ref 的唯一事实源，node 收到后通知 ds-bot 更新。
       // onModelSync 由 assembly 注入（连 ds-bot 时才存在）；旧 node 忽略此帧（return false）。

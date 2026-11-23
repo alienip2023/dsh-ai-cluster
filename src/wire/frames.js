@@ -110,6 +110,14 @@ export const HUB_TO_NODE = Object.freeze({
    */
   BOT_ACTION: 'bot/action',
   /**
+   * 主控把用户消息里的图片/文件按块送给节点 Bot（能力 bot-attach/1）：hub → node，
+   * 载荷 { nodeId, remoteBotId, exchangeId, index, chunk, chunks, data }。data 是 base64（单块 ≤ 1,100,000 字符），
+   * index 是本回合第几个附件（0..7），chunk 从 0 起、共 chunks（≤ 40）块。没有结果帧。
+   * hub 先发完全部分块，再在同一条链路上发点名它们的 bot/turn（attachments 清单），节点按到达顺序同步交给接收方。
+   * 必须加密（E2E_REQUIRED_TYPES）：帧里是用户的图片/文件原文。
+   */
+  BOT_ATTACH: 'bot/attach',
+  /**
    * T9a：主控 → 节点的只读影子名单。载荷 { hubId, level, hostname, bots }。
    * 节点据此建 origin:'peer' 的只读行；不带 nodeId —— 归属由连接身份决定。
    * 必须加密（E2E_REQUIRED_TYPES）：名单暴露主控有哪些 Bot。
