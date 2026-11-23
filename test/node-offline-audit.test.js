@@ -39,3 +39,18 @@ test('a node coming online is audited; one coming back after a drop also says ho
   assert.equal(back.lastReason, 'socket closed 1006: read ETIMEDOUT')
   assert.ok(back.downMs >= 150_000 && back.downMs < 160_000, `downMs ${back.downMs}`)
 })
+
+test('a node that reports its AC version has it in the hello the hub keeps and in node.online', () => {
+  const recorded = []
+  const registry = new NodeRegistry({ log: () => {}, audit: { record: (event, fields) => recorded.push({ event, fields }) } })
+  registry.send = () => true
+  registry.sendIdentityFrame = () => {}
+  registry.ingestHello({ helloData: { ...hello, acVersion: '0.4.28' }, conn: undefined, transport: 'relay', pending: undefined })
+  assert.equal(registry.getNode('n1').hello.acVersion, '0.4.28')
+  assert.equal(recorded[0].fields.acVersion, '0.4.28')
+  // an older node does not send it; a malformed one is dropped, not trusted
+  registry.ingestHello({ helloData: { ...hello, nodeId: 'n2' }, conn: undefined, transport: 'relay', pending: undefined })
+  assert.equal(registry.getNode('n2').hello.acVersion, '')
+  registry.ingestHello({ helloData: { ...hello, nodeId: 'n3', acVersion: '<script>' }, conn: undefined, transport: 'relay', pending: undefined })
+  assert.equal(registry.getNode('n3').hello.acVersion, '')
+})

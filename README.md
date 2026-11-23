@@ -2,11 +2,11 @@
 
 [English](README.en.md)
 
-`dsh-ai-cluster` 0.4.27 是一个 DSH 插件。主机（hub）通过「AI 集群控制」面板查看节点并分配任务，副机（worker）在自己的工作区执行任务并回传结果。协议版本仍为 **1**。
+`dsh-ai-cluster` 0.4.28 是一个 DSH 插件。主机（hub）通过「AI 集群控制」面板查看节点并分配任务，副机（worker）在自己的工作区执行任务并回传结果。协议版本仍为 **1**。
 
 ## 一、五分钟上手
 
-在运行 DSH 的主机和副机上，用 0.4.27 的 `.tgz` 安装插件：
+在运行 DSH 的主机和副机上，用 0.4.28 的 `.tgz` 安装插件：
 
 ```sh
 dsh plugin install <tgz>
@@ -79,7 +79,19 @@ dsh plugin install <tgz>
 - **`bot/action`**（主控 → 节点）与 **`bot/action-result`**：替用户对节点 Bot 的界面状态做操作，`action` 为 `card-answer`、`task-stop`、`task-send`、`task-start`；需要能力 `bot-action/1`，加密，回执校验失败会立刻以失败结算请求方。
 - **`bot/trace`**（节点 → 主控，能力 `bot-trace/1`）：节点 Bot 一个回合里的思考过程与工具步骤，让主控页面像本地 Bot 一样显示「思考过程」和工具步骤。载荷 `{ nodeId, remoteBotId, exchangeId, seq, final?, items, omitted? }`：`items` 是追加式日志（`{ i, t:'a', think?, calls?, end? }` 一条助手消息、`{ i, t:'r', id, ok, out? }` 一个工具结果），主控按序号 `i` 去重、排序；回合进行中分批（节流）发出，回合结束时在 `bot/turn-result` 之前再发一帧 `final:true`，带全部步骤，用来修补丢掉的中间帧。文本字段有长度上限（超出在文末写「…[已截断 N 字]」），条数 / 字节超限丢弃的数量记在 `omitted` / `clipped`，不静默；整帧加密。节点只在 hub 的 welcome 里带了 `bot-trace/1` 后才发，旧 hub 一帧也收不到。
 - **`roster/report`**（节点 → 主控）：节点 Bot 名册，附带每个 Bot 正在跑的任务摘要和等待人回答的**卡片**（`cards`，能力 `roster-cards/1`；每个 Bot 最多 8 张，正文 2000 字）。整帧不超过 512 KiB：超出时按「卡片正文 → 技能正文 → 最旧任务 → 卡片」裁，不丢 Bot，被裁的内容在 `trimmed` 里列出；内容未变的名册 30 秒内不重发。
-- **能力**（节点 hello 的 `caps`）：`bot-turn-mode/1`、`bot-action/1`、`roster-cards/1`、`bot-trace/1`、`bot-attach/1`（只有节点上报，主控 welcome 不带）；hub 在 welcome 的 `caps` 里带 `memory-sync/1`、`bot-trace/1`。ds-bot 在使用前读取这些能力（从节点 hello 的 `caps`）：缺能力的节点退回到它能做的事，并提示哪台节点需要升级到 0.4.21；能力未知（节点未连上或旧版 AC 不上报）按「能」处理，由节点自己的拒绝如实显示。
+- **能力**（节点 hello 的 `caps`）：`bot-turn-mode/1`、`bot-action/1`、`roster-cards/1`、`bot-trace/1`、`bot-attach/1`、`config-models/1`（只有节点上报，主控 welcome 不带；hello 另带 `acVersion`）；hub 在 welcome 的 `caps` 里带 `memory-sync/1`、`bot-trace/1`。ds-bot 在使用前读取这些能力（从节点 hello 的 `caps`）：缺能力的节点退回到它能做的事，并提示哪台节点需要升级到 0.4.21；能力未知（节点未连上或旧版 AC 不上报）按「能」处理，由节点自己的拒绝如实显示。
 - **加密**：E2E 会话建立后，节点上行的会话/控制帧必须是密文，明文会被主控丢弃、审计并回 `e2e-required`（`hello`/`ping`/`pong`/`error`、握手帧和遥测除外）。
+
+### ds-bot 与 AC 的配套版本
+
+主控和每个节点都要装配套的两个插件。ds-bot 读取节点 hello 里的能力和 `acVersion`，AC 不够新的节点会在 Bot 列表里被标出「需要升级」，并说明缺什么。
+
+| ds-bot | 需要的 AC（主控和节点） | 这一版新增的依赖 |
+| --- | --- | --- |
+| 0.3.10-fork.99～100 | 0.4.19 | 节点 Bot 与主控 Bot 一致所需的帧（`bot/action`、`bot/turn` 的 `mode`、名册卡片） |
+| 0.3.10-fork.101～102 | 0.4.21 | `bot/trace`（思考过程与工具步骤） |
+| 0.3.10-fork.103～106 | 0.4.26 | `bot/attach`（图片和文件）；0.4.26 起附件不加密不发、不被后面的回合反超、旧 ds-bot 不会悄悄丢附件 |
+| 0.3.10-fork.107 | 0.4.27 | 节点模型能力落盘（节点上的模型能读图片）；节点没有主 Bot |
+| 0.3.10-fork.108 | 0.4.28 | 节点上报 `acVersion` 和 `config-models/1`，主控据此精确判断哪台节点的 AC 不够新 |
 
 进一步阅读：[部署指南](profiles/README.md)、[已知问题](KNOWN-ISSUES.md)、[安全说明](SECURITY.md)、[更新日志](CHANGELOG.md)和 [MIT 许可证](LICENSE)。

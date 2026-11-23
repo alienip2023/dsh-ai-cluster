@@ -9,6 +9,12 @@
 
 ---
 
+## 0.4.28 — 2026-11-24（与 ds-bot 0.3.10-fork.108 配套）
+
+- 节点 hello 新增 `acVersion`（这台节点运行的 AC 版本，格式不对则丢弃）和能力 `config-models/1`（节点会把模型的 input / contextWindow / reasoningEfforts 等落盘，见 0.4.27）。主控据此精确判断哪台节点的 AC 不够新；`node.online` 审计带上 `acVersion`。
+- README（中、英）新增「ds-bot 与 AC 的配套版本」表。
+- 不改任何帧字段，协议版本仍为 1；旧节点不带 `acVersion` 时按「版本未知」处理，由能力位判断。
+
 ## 0.4.27 — 2026-11-23（节点模型能力不再丢失；ds-bot 无需改动）
 
 - **问题**：hub 推送配置时，`lib/node/config-sync.js` 只把每个模型落成 `{id, name}`（源码里的注释就写着「模型字段补全在 P1b-2 才由节点落盘」，这一步一直没做）。主控（ds-bot `config-v2.js`）发来的 `contextWindow`、`maxTokens`、`input`、`reasoningEfforts` 都被丢掉，pi-ai 对没声明 `input` 的模型按「只有文本」处理，所以节点上的模型读不了图片，也没有思考档位。

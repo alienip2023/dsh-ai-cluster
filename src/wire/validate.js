@@ -26,6 +26,8 @@ export function validateHello(d) {
       arch: typeof d.arch === 'string' ? d.arch : 'unknown',
       hostname: typeof d.hostname === 'string' ? d.hostname : d.nodeId,
       dshVersion: typeof d.dshVersion === 'string' ? d.dshVersion : '',
+      // The AC version this node runs (0.4.28+): lets the hub say which node is behind what ds-bot needs.
+      acVersion: typeof d.acVersion === 'string' && /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]{1,24})?$/.test(d.acVersion) ? d.acVersion : '',
       shells: Array.isArray(d.shells) ? d.shells.filter((s) => typeof s === 'string') : [],
       roots: Array.isArray(d.roots) ? d.roots.filter((s) => typeof s === 'string') : [],
       caps: Array.isArray(d.caps) ? d.caps.filter((s) => typeof s === 'string') : [],
