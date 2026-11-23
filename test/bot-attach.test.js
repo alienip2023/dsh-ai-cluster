@@ -412,13 +412,60 @@ test('hub -> node over a real link: bot/attach is sealed, and a turn that names 
     assert.equal(text.includes('PRIVATE'), false)
   }
 
-  // Control: a turn without attachments still uses the peer-direct path, as before.
+  // The turn right behind an attachment turn stays on the hub link too (it must not overtake it on the peer link).
   const beforePlain = hubFrames.length
   assert.equal(registry.send('b', 'bot/turn', { nodeId: 'b', remoteBotId: 'beta', exchangeId: 'plain', text: 'hi' }), true)
   await until(() => received.turns.length === 2, 'plain turn')
-  assert.equal(hubFrames.slice(beforePlain).some((f) => f.type === 'bot/turn'), false, 'no attachments: peer-direct as before')
+  assert.equal(hubFrames.slice(beforePlain).some((f) => f.type === 'bot/turn'), true, 'behind an attachment turn: hub link, in order')
+  // Two minutes later the peer-direct path is back.
+  registry.hubOnlyUntil.set('b', Date.now() - 1)
+  const beforeLater = hubFrames.length
+  assert.equal(registry.send('b', 'bot/turn', { nodeId: 'b', remoteBotId: 'beta', exchangeId: 'later', text: 'hi' }), true)
+  await until(() => received.turns.length === 3, 'later plain turn')
+  assert.equal(hubFrames.slice(beforeLater).some((f) => f.type === 'bot/turn'), false, 'later: peer-direct as before')
   // An empty manifest is no manifest.
   assert.equal(registry.send('b', 'bot/turn', { nodeId: 'b', remoteBotId: 'beta', exchangeId: 'empty', text: 'hi', attachments: [] }), true)
-  await until(() => received.turns.length === 3, 'empty manifest turn')
-  assert.equal(Object.hasOwn(received.turns[2], 'attachments'), false)
+  await until(() => received.turns.length === 4, 'empty manifest turn')
+  assert.equal(Object.hasOwn(received.turns[3], 'attachments'), false)
+})
+
+// ── audit round: a turn behind an attachment turn must not overtake it; chunks never leave in plaintext ───────
+
+test('BA-audit-1: while an attachment turn is in flight, the turns behind it stay on the hub link (no peer-direct overtaking)', async () => {
+  const { NodeRegistry } = await import('../lib/hub/node-registry.js')
+  const registry = new NodeRegistry({ log: () => {} })
+  const wire = []
+  const viaPeer = []
+  const conn = { closed: false, send: (text) => { wire.push(JSON.parse(text).t); return true }, ping() {}, destroy() {} }
+  registry.nodes.set('n1', { nodeId: 'n1', online: true, conn, tasks: new Map(), hello: { nodeId: 'n1' } })
+  registry.peerRouter = { send: (_nodeId, type) => { viaPeer.push(type); return true } }
+  const plain = { nodeId: 'n1', remoteBotId: 'b1', exchangeId: 'e', text: 'x' }
+  assert.equal(registry.send('n1', 'bot/turn', plain), true)
+  assert.deepEqual(viaPeer, ['bot/turn'], 'before any attachment: peer-direct as always')
+  registry.send('n1', 'bot/turn', { ...plain, attachments: [{ index: 0 }] })
+  registry.send('n1', 'bot/turn', plain)
+  assert.deepEqual(viaPeer, ['bot/turn'], 'the attachment turn and the one behind it went on the hub link')
+  assert.deepEqual(wire, ['bot/turn', 'bot/turn'])
+  const realNow = Date.now
+  try {
+    Date.now = () => realNow() + 121_000
+    registry.send('n1', 'bot/turn', plain)
+  } finally { Date.now = realNow }
+  assert.deepEqual(viaPeer, ['bot/turn', 'bot/turn'], 'after two minutes the peer-direct path is back')
+})
+
+test('BA-audit-2: bot/attach is not sent to a node without an e2e session (the user\'s image would be readable on the wire)', async () => {
+  const { NodeRegistry } = await import('../lib/hub/node-registry.js')
+  const registry = new NodeRegistry({ log: () => {} })
+  const wire = []
+  const conn = { closed: false, send: (text) => { wire.push(text); return true }, ping() {}, destroy() {} }
+  const chunk = { nodeId: 'n1', remoteBotId: 'b1', exchangeId: 'e', index: 0, chunk: 0, chunks: 1, data: 'QUJD' }
+  registry.nodes.set('n1', { nodeId: 'n1', online: true, conn, tasks: new Map(), hello: { nodeId: 'n1' } })
+  assert.equal(registry.send('n1', 'bot/attach', chunk), false)
+  assert.deepEqual(wire, [], 'nothing was written')
+  // with a session the frame is sealed, not plain
+  registry.nodes.get('n1').e2e = { sealFrame: () => ({ sealed: true }) }
+  assert.equal(registry.send('n1', 'bot/attach', chunk), true)
+  assert.equal(wire.length, 1)
+  assert.equal(wire[0].includes('QUJD'), false, 'the payload is sealed')
 })

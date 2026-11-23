@@ -290,3 +290,10 @@ test('hub: a port holder that still answers its health check is left alone, howe
   assert.equal(process.kill(child.pid, 0), true)
   assert.equal(child.signalCode, null)
 })
+
+test('holderResponds: a healthy but slow instance (3.5 s) still counts as answering', { timeout: 15000 }, async (t) => {
+  const server = http.createServer((_req, res) => { setTimeout(() => { res.writeHead(200); res.end('{"ok":true}') }, 3500) })
+  await new Promise(resolve => server.listen(0, host, resolve))
+  t.after(() => { server.closeAllConnections?.(); server.close() })
+  assert.equal(await holderResponds({ host, port: server.address().port, path: '/health' }), true)
+})

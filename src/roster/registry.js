@@ -79,6 +79,7 @@ const numOr = (v, fallback) => (typeof v === 'number' && Number.isFinite(v) ? v 
  * (bot/attach is not a peer bot type). Sending that turn over a peer-direct socket could overtake the chunks,
  * so it takes the hub link too: one connection, so the chunks are in front of the turn.
  */
+const HUB_ONLY_AFTER_ATTACH_MS = 120_000
 function carriesAttachments(type, data) {
   return type === 'bot/turn' && Array.isArray(data?.attachments) && data.attachments.length > 0
 }
@@ -314,7 +315,18 @@ class RosterCore extends EventEmitter {
    * 节点有 E2E 会话（提案 #1）时 d 字段自动封密（上述明文白名单除外）。
    */
   send(nodeId, type, data, opts = {}) {
-    if (this.peerRouter && !carriesAttachments(type, data) && this.isPeerBotTypeFn(type) && this.nodes.get(nodeId)?.online) {
+    // An image or a file is the user's own data: it never leaves unencrypted (the receiving side refuses plaintext too),
+    // so a node whose E2E session is not up yet gets no chunk rather than a readable one. The sender fails the message.
+    if (type === HUB_TO_NODE.BOT_ATTACH && !this.nodes.get(nodeId)?.e2e) {
+      this.log('warn', 'bot/attach not sent: no e2e session with the node', { nodeId })
+      return false
+    }
+    // A turn with attachments travels on the hub link (its chunks do). The turns right behind it must not overtake it by
+    // taking the peer-direct link: for a while after one, every turn to that node uses the hub link too.
+    const hubOnly = (this.hubOnlyUntil ??= new Map())
+    if (carriesAttachments(type, data)) hubOnly.set(nodeId, Date.now() + HUB_ONLY_AFTER_ATTACH_MS)
+    const keepOnHub = carriesAttachments(type, data) || (hubOnly.get(nodeId) ?? 0) > Date.now()
+    if (this.peerRouter && !keepOnHub && this.isPeerBotTypeFn(type) && this.nodes.get(nodeId)?.online) {
       return this.peerRouter.send(nodeId, type, data, opts)
     }
     return this.sendViaHub(nodeId, type, data, opts)
