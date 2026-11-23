@@ -9,6 +9,19 @@
 
 ---
 
+## 0.4.26 — 2026-11-23（D2：监听端口被自家旧实例占住；ds-bot 无需改动）
+
+- **问题**：用户 ⌘Q 后重开，旧宿主进程没有退出，继续占着 hub 的监听端口（已复现三次，每次要人工 kill -9），新宿主的 hub 一直绑不上，节点全部掉线。已有的退避重试只会等。
+- **处理**：hub 监听成功后写一份锁文件（`~/.dsh/ai-cluster/hub-<端口>.lock.json`：pid、端口、profile 标记、版本、启动时间），正常卸载时清除。绑不上端口并且已经等满 30 秒后，只有**同时满足**下列全部条件才会动手，缺任何一项（或拿不到信息）都继续等：
+  - 锁里记着这个端口和 pid，pid 活着、不是自己也不是自己的祖先；
+  - 同一个 profile（`DSH_HOME` / `DSH_PROFILE` 一致），命令行含 `DeepSeek Harness`；
+  - `lsof` 确认这个 pid 真的在监听这个端口（防 pid 复用）；
+  - 它比当前进程启动得更早；
+  - 它对 hub 自己的健康检查接口**没有任何回应**（连试两次，各 3 秒）——一个健康的实例会回应，绝不会被杀；
+  - 动手时先 SIGTERM，等 3 秒，仍活着才 SIGKILL；一次监听最多回收 3 次。
+- 只在 macOS / Linux 生效（Windows 没有 `ps` / `lsof`，行为不变）；任何一步出错只记 warn，继续原来的等待。
+- 日志：`hub: reclaimed listen port from a stale hub instance`（`pid`、`port`、`reason`、`signal`）；对方仍有回应时记 `hub: the port holder still answers, not reclaiming`。
+
 ## 0.4.25 — 2026-11-23（主控向节点 Bot 发图片/文件；需要 ds-bot 配套版本）
 
 - **新帧 `bot/attach`（主控 → 节点，能力 `bot-attach/1`）**：用户消息里的图片/文件按块（base64，单块 ≤ 1,100,000 字符，每个附件 ≤ 40 块、≤ 20 MiB，每回合 ≤ 8 个）送给节点 Bot。节点校验后在同一个 tick 内同步调用 `ctx.get('remote-agent:bot-attach')`（由副机 ds-bot 提供），没有结果帧；接收方同步抛错或返回 rejected promise 都被吞掉，不影响后面的帧；没有接收方只记一条日志。校验失败回 `error` 帧（`bot-attach-*`）。整帧加密：三份「必须加密」表都加了它，E2E 会话建立后明文的 `bot/attach` 被节点拒收。
