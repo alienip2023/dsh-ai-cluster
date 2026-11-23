@@ -590,7 +590,7 @@ export function registerClusterTools({ ctx, registry, pulls, log: _log, defaults
   const remoteTask = {
     name: 'cluster_task',
     description:
-      '把一条任务派给远程副机执行。副机在自己的机器上本地跑（默认起一个独立 agent 会话，mode=exec 则直接跑一段命令），任务在副机持久运行、断连不终止。本工具只等到副机"接受任务"就返回，不等结果；之后用 cluster_status / cluster_handoff 跟进。',
+      '把一条任务派给远程副机执行。副机在自己的机器上本地跑（默认起一个独立 agent 会话，mode=exec 则直接跑一段命令），任务在副机持久运行、断连不终止；mode=exec 的命令任务在派出它的回合结束后继续跑，要停用 cluster_cancel（mode=agent 的任务会随派出它的会话停止而取消）。本工具只等到副机"接受任务"就返回，不等结果；之后用 cluster_status / cluster_handoff 跟进。',
     parameters: {
       type: 'object',
       properties: {

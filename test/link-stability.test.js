@@ -98,3 +98,21 @@ test('LS-4: the node default timeout is 6 heartbeats, and a stalled event loop i
   assert.equal(conn.destroyed, 0, 'silence caused by our own stall is not a dead link')
   assert.ok(stalls.length >= 1 && stalls[0].lagMs > 100, 'the stall is reported')
 })
+
+test('LS-5 (stress round 3, D4): a plain reconnect never waits longer than 12 s, however many attempts failed', (t) => {
+  const tr = new NodeTransport({ mode: 'direct', url: 'ws://127.0.0.1:1/x', token: 't', hello: { nodeId: 'n1' } })
+  tr.on('error', () => {})
+  const delays = []
+  tr.on('reconnecting', info => delays.push(info.delayMs))
+  const realSetTimeout = globalThis.setTimeout
+  t.after(() => { globalThis.setTimeout = realSetTimeout; tr.stop() })
+  globalThis.setTimeout = () => ({ unref() {} })   // never actually fire the reconnect
+  for (let attempt = 1; attempt <= 12; attempt += 1) {
+    tr.timer = undefined
+    tr.scheduleReconnect()
+  }
+  assert.equal(delays.length, 12)
+  assert.ok(delays[0] >= 1000 && delays[0] <= 1200, 'the first retry is still quick')
+  assert.ok(delays[3] >= 8000, 'early attempts still back off')
+  assert.ok(Math.max(...delays) <= 12_000, `the longest wait was ${Math.max(...delays)} ms (10 s cap + 20 % jitter)`)
+})

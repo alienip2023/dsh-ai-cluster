@@ -212,7 +212,7 @@ export class TaskEngine {
       at: Date.now(),
     })
 
-    const before = this.snapshotWorkspace(rec.workspace, { withContent: true })
+    const before = await this.snapshotWorkspace(rec.workspace, { withContent: true })
 
     try {
       const result = rec.mode === TASK_MODE.EXEC
@@ -227,7 +227,7 @@ export class TaskEngine {
         signal: controller.signal,
       })
 
-      const after = this.snapshotWorkspace(rec.workspace)
+      const after = await this.snapshotWorkspace(rec.workspace)
       const changed = diffSnapshots(before, after, rec.workspace, this.caseInsensitive)
       const diffs = buildDiffs({
         workspace: rec.workspace,
@@ -485,8 +485,12 @@ export class TaskEngine {
    * 任务跑完再想拿前像就晚了。只对 before 侧开（after 侧的 diff 后文按需
    * 现读，避免无谓的双倍 I/O）。捕获上限保证快照成本有界：大文件/二进制/
    * 深层堆积都不进内容库，这些文件的 diff 会缺席（changed 元数据仍在）。
+   *
+   * 异步（压测第三轮 D5）：原先全程 readdirSync/statSync/readFileSync，工作区堆了上百个历史文件时
+   * 每条任务收尾要把节点事件循环占住几秒，并发越高越慢，节点心跳和 bot 回合也被一起卡住。
+   * 现在每步 I/O 都让出事件循环；遍历顺序和内容库上限的取舍与同步版完全一致。
    */
-  snapshotWorkspace(workspace, { withContent = false } = {}) {
+  async snapshotWorkspace(workspace, { withContent = false } = {}) {
     const map = new Map()
     const stack = [{ abs: workspace, rel: '', depth: 0 }]
     const deny = [...this.denyPaths, ...(this.store.list().flatMap((r) => r.constraints?.denyPaths ?? []))]
@@ -497,7 +501,7 @@ export class TaskEngine {
       if (cur.depth > 12) continue
       let entries
       try {
-        entries = fs.readdirSync(cur.abs, { withFileTypes: true })
+        entries = await fs.promises.readdir(cur.abs, { withFileTypes: true })
       } catch {
         continue
       }
@@ -513,11 +517,11 @@ export class TaskEngine {
         }
         if (!e.isFile()) continue
         try {
-          const st = fs.statSync(childAbs)
+          const st = await fs.promises.stat(childAbs)
           const entry = { bytes: st.size, mtimeMs: Math.round(st.mtimeMs) }
           if (withContent && contentFiles < MAX_SNAPSHOT_CONTENT_FILES && contentBytes < MAX_SNAPSHOT_CONTENT_TOTAL_BYTES && st.size > 0 && st.size <= MAX_SNAPSHOT_FILE_BYTES) {
             try {
-              const buf = fs.readFileSync(childAbs)
+              const buf = await fs.promises.readFile(childAbs)
               // 二进制挡板：前 64 字节出现 NUL 视为二进制，不进内容库
               if (!buf.subarray(0, 64).includes(0)) {
                 entry.content = buf.toString('utf8')
