@@ -1316,3 +1316,17 @@ export function validateMemAck(d) {
   if (!Number.isInteger(o.seq) || o.seq < 0) return null
   return { seq: o.seq }
 }
+
+/**
+ * 校验 hub/bot/locate（hub → node，查询某 Bot 是否在此节点运行）。
+ * Payload { botId, requestId }.
+ * @returns {{ok:true, locate:object} | {ok:false, error:string}}
+ */
+export function validateBotLocate(d) {
+  if (!d || typeof d !== 'object' || Array.isArray(d)) return { ok: false, error: 'bot-locate-missing' }
+  const botId = requiredTurnId(d.botId, 'bot-locate-botId-missing')
+  if (!botId.ok) return botId
+  const requestId = requiredTurnId(d.requestId, 'bot-locate-requestId-missing')
+  if (!requestId.ok) return requestId
+  return { ok: true, locate: { botId: botId.value, requestId: requestId.value } }
+}

@@ -238,6 +238,11 @@ export const NODE_TO_HUB = Object.freeze({
   /** Pairing notification: a node completed a peer pairing and tells the hub. */
   PEER_PAIRED: 'peer/paired',
   /**
+   * Node response to hub/bot/locate.
+   * Payload { requestId, botId, nodeId, found, machineId?, pubKeyB64?, sig? }.
+   */
+  BOT_LOCATE_RESULT: 'bot/locate-result',
+  /**
    * 名单第 3 步。副机返回 bot/create 的结果。
    * 载荷 { requestId, remoteBotId, name, role } 或 { requestId, ok: false, error }。
    */
