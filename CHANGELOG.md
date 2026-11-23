@@ -9,6 +9,19 @@
 
 ---
 
+## 0.4.32 — 2026-11-24（与 ds-bot 0.3.10-fork.112 配套）
+
+**Bot 持久化：每回合写入 AgentJournal**
+
+- `lib/bot-turn.js`：在 `receiver` 调用前后注入 `AgentJournal` 录制：
+  - `turn/start` — 记 exchangeId、textDigest、fromBotId
+  - `step/model`、`step/tool`、`step/tool-result` — 从 `result.trace.items` 派生
+  - `turn/end` / `turn/fail` — 覆盖正常结束与异常路径，`finally` 中 `close()`
+  - 崩溃后 `findIncomplete()` 可返回未结束回合供恢复使用
+- `lib/network/pairing/pairing-client.js`：修复 ESM 不兼容的 `require('node:crypto')`，改为顶层 `import { createHmac }`
+
+---
+
 ## 0.4.31 — 2026-11-24（与 ds-bot 0.3.10-fork.111 配套）
 
 **Step 1：Network Layer — 机器身份、LAN 发现、配对码、守护进程**
