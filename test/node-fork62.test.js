@@ -428,7 +428,7 @@ test('stability: node heartbeat timeout replaces the socket and clears the old i
   const old = tr.conn
   const timer = tr.hbTimer
   old.socket.pause()
-  tr.lastPongAt = Date.now() - 46_000
+  tr.lastPongAt = Date.now() - (tr.heartbeatTimeoutMs + 1000)
   await waitFor(() => rec.online === 2, 'recovered from missing pong')
   assert.equal(timer._destroyed, true)
   assert.notEqual(tr.conn, old)
