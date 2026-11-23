@@ -2,11 +2,11 @@
 
 [简体中文](README.md)
 
-`dsh-ai-cluster` 0.4.28 is a DSH plugin. The hub uses the AI Cluster Control panel to view nodes and assign tasks. Workers run tasks in their own workspaces and send back the results. The protocol version remains **1**.
+`dsh-ai-cluster` 0.4.30 is a DSH plugin. The hub uses the AI Cluster Control panel to view nodes and assign tasks. Workers run tasks in their own workspaces and send back the results. The protocol version remains **1**.
 
 ## 1. Quick start
 
-Install the plugin from the 0.4.28 `.tgz` on the hub and worker machines running DSH:
+Install the plugin from the 0.4.30 `.tgz` on the hub and worker machines running DSH:
 
 ```sh
 dsh plugin install <tgz>
@@ -92,6 +92,6 @@ The hub and every node need the matching pair. ds-bot reads the capabilities and
 | 0.3.10-fork.101–102 | 0.4.21 | `bot/trace` (thinking and tool steps) |
 | 0.3.10-fork.103–106 | 0.4.26 | `bot/attach` (images and files); from 0.4.26 attachments are never sent unencrypted, never overtaken by a later turn, and never silently dropped by an old ds-bot |
 | 0.3.10-fork.107 | 0.4.27 | a node writes a model's capabilities (a node model can read images); nodes have no Main Bot |
-| 0.3.10-fork.108 | 0.4.28 | the node reports `acVersion` and `config-models/1`, so the hub can tell exactly which node's AC is behind |
+| 0.3.10-fork.108 | 0.4.30 | the node reports `acVersion` and `config-models/1`, so the hub can tell exactly which node's AC is behind |
 
 Further reading includes the [deployment guide](profiles/README.md), [known issues](KNOWN-ISSUES.md), [security notes](SECURITY.md), [changelog](CHANGELOG.md), and [MIT license](LICENSE).

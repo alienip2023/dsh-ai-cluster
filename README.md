@@ -2,11 +2,11 @@
 
 [English](README.en.md)
 
-`dsh-ai-cluster` 0.4.28 是一个 DSH 插件。主机（hub）通过「AI 集群控制」面板查看节点并分配任务，副机（worker）在自己的工作区执行任务并回传结果。协议版本仍为 **1**。
+`dsh-ai-cluster` 0.4.30 是一个 DSH 插件。主机（hub）通过「AI 集群控制」面板查看节点并分配任务，副机（worker）在自己的工作区执行任务并回传结果。协议版本仍为 **1**。
 
 ## 一、五分钟上手
 
-在运行 DSH 的主机和副机上，用 0.4.28 的 `.tgz` 安装插件：
+在运行 DSH 的主机和副机上，用 0.4.30 的 `.tgz` 安装插件：
 
 ```sh
 dsh plugin install <tgz>
@@ -92,6 +92,6 @@ dsh plugin install <tgz>
 | 0.3.10-fork.101～102 | 0.4.21 | `bot/trace`（思考过程与工具步骤） |
 | 0.3.10-fork.103～106 | 0.4.26 | `bot/attach`（图片和文件）；0.4.26 起附件不加密不发、不被后面的回合反超、旧 ds-bot 不会悄悄丢附件 |
 | 0.3.10-fork.107 | 0.4.27 | 节点模型能力落盘（节点上的模型能读图片）；节点没有主 Bot |
-| 0.3.10-fork.108 | 0.4.28 | 节点上报 `acVersion` 和 `config-models/1`，主控据此精确判断哪台节点的 AC 不够新 |
+| 0.3.10-fork.108 | 0.4.30 | 节点上报 `acVersion` 和 `config-models/1`，主控据此精确判断哪台节点的 AC 不够新 |
 
 进一步阅读：[部署指南](profiles/README.md)、[已知问题](KNOWN-ISSUES.md)、[安全说明](SECURITY.md)、[更新日志](CHANGELOG.md)和 [MIT 许可证](LICENSE)。

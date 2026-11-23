@@ -30,7 +30,7 @@ test('PROTOCOL_VERSION 与块大小/上限常量不变', () => {
 })
 
 test('除 caps 常量（归 slice 2）外，旧 protocol 的导出在新 wire 里都有', () => {
-  const caps = new Set(['nodeCaps', 'MEMORY_CAPS', 'HUB_CAPS', 'BOT_MEMORY_UPDATE_CAP', 'BOT_PROFILE_UPDATE_CAP', 'BOT_TURN_MODE_CAP', 'BOT_ACTION_CAP', 'ROSTER_CARDS_CAP', 'BOT_TRACE_CAP', 'BOT_ATTACH_CAP', 'CONFIG_MODELS_CAP'])
+  const caps = new Set(['nodeCaps', 'MEMORY_CAPS', 'HUB_CAPS', 'BOT_MEMORY_UPDATE_CAP', 'BOT_PROFILE_UPDATE_CAP', 'BOT_TURN_MODE_CAP', 'BOT_ACTION_CAP', 'ROSTER_CARDS_CAP', 'BOT_TRACE_CAP', 'BOT_STREAM_CAP', 'BOT_ATTACH_CAP', 'CONFIG_MODELS_CAP'])
   const missing = Object.keys(oldP).filter((k) => !caps.has(k) && !(k in newW))
   assert.deepEqual(missing, [])
   for (const k of caps) assert.equal(k in newW, false, `${k} 不得出现在 wire`)

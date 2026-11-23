@@ -9,11 +9,21 @@
 
 ---
 
+## 0.4.30 — 2026-11-24（与 ds-bot 0.3.10-fork.110 配套）
+
+- 新增帧 `bot/stream`（`NODE_TO_HUB.BOT_STREAM`）和能力 `bot-stream/1`：节点 Bot 在回合中把模型的文本增量实时转发给主控，主控逐字渲染，体验与本地 Bot 一致。旧主控不认识此帧；节点仅在主控 welcome 宣告 `bot-stream/1` 后才发。帧列入 E2E_REQUIRED（加密传输）。
+- `registry-ingest.js` 新增 `botStream` 事件 handler（`case NODE_TO_HUB.BOT_STREAM`）。
+- `bot-turn.js`：receiver 的 `control` 对象新增 `control.stream.start(ctx, sessionId)`，接收方挂接 `agent/assistant-stream` 事件、节流 80ms 发 `bot/stream` 帧；结果送出前自动 flush。
+- `lib/protocol.js` 新增 `validateBotStream`；`src/wire/validate.js` 同步。
+- `src/caps/node-caps.js` 新增 `BOT_STREAM_CAP`，加入 `HUB_CAPS` 和 `nodeCaps()`。
+
+## 0.4.29 — 2026-11-24（与 ds-bot 0.3.10-fork.109 配套）
+
+- 安全加固：roster Bot id 截断上限 80→200 字符；`D2` `listenersOf`/`commandLine` 改异步（`execFile`），防事件循环阻塞；`registry` 新增 `bufferedBytesOf`/`drainNode` 背压接口。
+
 ## 0.4.28 — 2026-11-24（与 ds-bot 0.3.10-fork.108 配套）
 
 - 节点 hello 新增 `acVersion`（这台节点运行的 AC 版本，格式不对则丢弃）和能力 `config-models/1`（节点会把模型的 input / contextWindow / reasoningEfforts 等落盘，见 0.4.27）。主控据此精确判断哪台节点的 AC 不够新；`node.online` 审计带上 `acVersion`。
-- README（中、英）新增「ds-bot 与 AC 的配套版本」表。
-- 不改任何帧字段，协议版本仍为 1；旧节点不带 `acVersion` 时按「版本未知」处理，由能力位判断。
 
 ## 0.4.27 — 2026-11-23（节点模型能力不再丢失；ds-bot 无需改动）
 

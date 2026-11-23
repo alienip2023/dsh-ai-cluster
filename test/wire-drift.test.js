@@ -21,6 +21,7 @@ const ONLY_IN_LIB = {
   MEMORY_CAPS: 'capability flags: see BOT_ACTION_CAP',
   ROSTER_CARDS_CAP: 'capability flags: see BOT_ACTION_CAP',
   BOT_TRACE_CAP: 'capability flags: see BOT_ACTION_CAP',
+  BOT_STREAM_CAP: 'capability flags: see BOT_ACTION_CAP',
   BOT_ATTACH_CAP: 'capability flags: see BOT_ACTION_CAP',
   CONFIG_MODELS_CAP: 'capability flags: see BOT_ACTION_CAP',
   nodeCaps: 'capability flags: see BOT_ACTION_CAP',
