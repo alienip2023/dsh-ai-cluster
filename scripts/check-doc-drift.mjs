@@ -28,7 +28,10 @@ const uiRoutes = read('lib/hub/ui-routes.js')
 const views = read('lib/hub/views.js')
 const hubTools = read('lib/hub/tools.js')
 const hubIndex = read('lib/hub/index.js')
+// lib/client.js 是生成物（src/panel/*.js → scripts/build-client.mjs）。凡是在断言「面板里有某个行为」，
+// 优先读源模块（panel.*），只有「构建结果里确实注册了什么」这类才读生成物 client。
 const client = read('lib/client.js')
+const panel = Object.fromEntries(['core', 'data', 'shell', 'fleet', 'team', 'tasks', 'settings', 'styles'].map((n) => [n, read(`src/panel/${n}.js`)]))
 const readme = read('profiles/README.md')
 const known = read('KNOWN-ISSUES.md')
 const pkg = JSON.parse(read('package.json'))
@@ -48,7 +51,7 @@ check('identity.titles', '文档标题与面板显示 AI 集群控制 / AI Clust
   /^# AI 集群控制\s*$/m.test(read('README.md'))
   && /^# AI Cluster Control\s*$/m.test(read('README.en.md'))
   && /^# dsh-ai-cluster 部署路径/m.test(readme)
-  && client.includes("label: function () { return 'AI 集群控制' }"),
+  && /label:\s*(?:\(\)\s*=>|function\s*\(\)\s*\{\s*return)\s*'AI 集群控制'/.test(client),
   'README.md + README.en.md + profiles/README.md + lib/client.js')
 
 // 版本一致性：CHANGELOG 最新一节的标题就是 package.json 的版本，两份 README 的首段也写同一个版本。
@@ -277,19 +280,26 @@ check('15g', 'KNOWN-ISSUES 6.3b 记录「kill 致还原被跳过」+ 结构性�
   /###\s*6\.3b/.test(known) && /try\/finally/.test(known) && /ALLOW_MUTATE_WORKTREE/.test(known),
   'KNOWN-ISSUES.md 第 6.3b 节')
 
-/* ── 16. client.js 契约 ── */check('16', 'PANEL_KEY 是单符号常量', /PANEL_KEY\s*=\s*'dsh-ai-cluster'/.test(client), 'client.js')
-check('17', 'sidebar.panellist 用 id: PANEL_KEY', /id:\s*PANEL_KEY/.test(client), 'client.js')
-check('18', 'main 用 key: PANEL_KEY', /key:\s*PANEL_KEY/.test(client), 'client.js')
+/* ── 16. client.js 契约（生成物里的注册形态） ── */
+check('16', 'shellPanelKey 是单符号常量，值为 dsh-ai-cluster', /\bshellPanelKey\s*=\s*'dsh-ai-cluster'/.test(client), 'lib/client.js（src/panel/shell.js 的 shellPanelKey）')
+check('17', 'sidebar.panellist 用 id: shellPanelKey', /name:\s*'sidebar\.panellist',\s*id:\s*shellPanelKey/.test(client), 'lib/client.js（scripts/build-client.mjs 的装配段）')
+check('18', 'main 用 key: shellPanelKey', /name:\s*'main',\s*key:\s*shellPanelKey/.test(client), 'lib/client.js（scripts/build-client.mjs 的装配段）')
 check('19', 'client 侧 API 前缀与 Host 一致',
   client.includes(`'${UI_PREFIX}'`), 'client.js var API')
-check('20', '轮询 8 秒且页面隐藏时不请求（文档已声明）',
-  /\bPOLL_MS\s*=\s*8000\b/.test(client)
-  && /\bshouldPoll\s*\(/.test(client)
-  && /\bsetInterval\s*\(\s*function\s*\(\s*\)\s*\{/.test(client)
+check('20', '轮询 8 秒且页面隐藏时不请求（文档已声明）：主机与副机两条轮询都要守',
+  /\bdataPollMs\s*=\s*8000\b/.test(panel.data)
+  && /function dataShouldPoll\(doc\)\s*\{\s*return !doc \|\| doc\.hidden !== true\s*\}/.test(panel.data)
+  && /dataShouldPoll\(/.test(bodyOf(panel.data, 'useHub'))
+  && /dataShouldPoll\(/.test(bodyOf(panel.data, 'useWorker'))
   && /8\s*秒/.test(readme) && /隐藏|不可见/.test(readme),
-  'client.js + README')
-check('21', '主题 token 带兜底 currentColor（t11 误报后的加固）',
-  /state-idle-primary,currentColor/.test(client), 'client.js')
+  'src/panel/data.js（dataPollMs + dataShouldPoll，useHub / useWorker 都要用）+ README')
+check('21', '主题 token 先读宿主变量、且每一处都带十六进制兜底（t11 误报后的加固）',
+  (() => {
+    const vars = panel.styles.match(/var\(--dra-host-[^)]*\)/g) ?? []
+    // 暗色 7 个（bg / 三层 surface / text / text-dim / accent）+ 浅色同 7 个
+    return vars.length >= 14 && vars.every((v) => /^var\(--dra-host-[a-z0-9-]+,\s*#[0-9a-fA-F]{3,8}\)$/.test(v))
+  })(),
+  'src/panel/styles.js（--dra-host-* 变量都有回退色）')
 
 /* ── 22. 配置字段存在且文档覆盖 ── */
 check('22', 'uiEnabled 配置存在且默认 true',
@@ -417,7 +427,6 @@ for (const [i, [file, why]] of MAINT_FILES.entries()) {
   const registryIngest = read('lib/hub/registry-ingest.js')
   const hubToolsSrc = read('lib/hub/tools.js')
   const uiRoutesSrc = read('lib/hub/ui-routes.js')
-  const clientSrc = read('lib/client.js')
   const hubIdx = read('lib/hub/index.js')
 
   // ⚠ 断言必须锚定"按非终态过滤"这个语义 —— 而不是"文件里没有 rec.tasks.size"。
@@ -435,8 +444,9 @@ for (const [i, [file, why]] of MAINT_FILES.entries()) {
   check('43', '提供了立即清理的入口（工具 + UI 路由 + 面板按钮）',
     /name:\s*'remote_purge'/.test(hubToolsSrc)
     && /UI_API_PREFIX\}\/purge/.test(uiRoutesSrc)
-    && /apiPost\('\/purge'/.test(clientSrc),
-    'remote_purge 工具 / /purge 路由 / 面板「清理」按钮 —— 三者缺一，死局就没有出口')
+    && /api\.post\('\/purge'/.test(panel.tasks) && /'清理历史任务'/.test(panel.tasks)
+    && /api\.post\('\/purge'/.test(panel.fleet) && /清理历史/.test(panel.fleet),
+    'remote_purge 工具 / /purge 路由 / 面板「清理历史任务」（任务屏）与「清理历史」（机器卡）按钮 —— 缺一，死局就没有出口')
 
   check('44', 'purgeTasks 只清 hub 视图，不给副机发帧',
     (() => {
@@ -534,17 +544,16 @@ for (const [i, [file, why]] of MAINT_FILES.entries()) {
  *   - dispatch 表单的模型输入真的进请求体
  */
 {
-  const panelClient = read('lib/client.js')
   const rootReadme = read('README.md')
   check('45', '/pair-info 路由存在，token 披露仅限回环（策略不被放宽）',
     /pair-info/.test(uiRoutes) && /loopback/.test(uiRoutes) && /remoteAddress/.test(uiRoutes),
     'lib/hub/ui-routes.js pair-info（loopback 判定 + remoteAddress 读取）')
   check('46', '面板有副机接入入口与 pair 复制按钮（GUI 落点真实存在）',
-    /副机接入/.test(panelClient) && /复制 pair 配置行/.test(panelClient) && /loadPair/.test(panelClient),
-    'lib/client.js 副机接入卡片')
+    /title: '添加机器'/.test(panel.fleet) && /复制 pair 配置行/.test(panel.fleet) && /\/pair-info\?port=/.test(panel.fleet),
+    'src/panel/fleet.js「添加机器」卡片（pair 复制按钮 + /pair-info）')
   check('47', 'dispatch 表单的模型输入进请求体，README 说明面板两条入口',
-    /model:\s*fv\.model/.test(panelClient) && /副机接入/.test(rootReadme) && /模型/.test(rootReadme),
-    'lib/client.js dispatch + README.md')
+    /body\.model\s*=\s*String\(f\.model\)\.trim\(\)/.test(panel.tasks) && /添加机器/.test(rootReadme) && /模型/.test(rootReadme),
+    'src/panel/tasks.js dispatch 请求体 + README.md')
 }
 
 /* ── 48. Windows 双击入口 ──
@@ -864,13 +873,15 @@ check('65', 'eslint 严格档：lint script + 配置文件 + CI job 三件套齐
  * 所以用断言把修复钉住。
  */
 {
-  const panelClient = read('lib/client.js')
-  check('73', '#26-4 面板任务列表按状态分组，运行中置顶且显示已跑时长',
-    /ACTIVE_STATUSES/.test(panelClient)
-    && /activeTasks/.test(panelClient)
-    && /运行中（/.test(panelClient)
-    && /已跑 /.test(panelClient),
-    'lib/client.js（ACTIVE_STATUSES + 运行中分组 + 已跑时长）')
+  check('73', '#26-4 面板任务列表按状态分组，进行中置顶且显示已跑时长',
+    /export function tasksIsActive\(status\) \{ return coreActiveStatuses\.indexOf\(status\) >= 0 \}/.test(panel.tasks)
+    && /active: shown\.filter\(\(t\) => tasksIsActive\(t\.status\)\)/.test(panel.tasks)
+    && /history: shown\.filter\(\(t\) => !tasksIsActive\(t\.status\)\)/.test(panel.tasks)
+    // 「进行中」分组标题必须先于「历史」渲染（置顶）
+    && panel.tasks.indexOf("'进行中（'") > 0 && panel.tasks.indexOf("'进行中（'") < panel.tasks.indexOf("'历史（'")
+    // 进行中的行显示「已跑 X」，终态显示「耗时 X」
+    && /\(active \? '已跑 ' : '耗时 '\) \+ coreFmtDur\(dur\)/.test(panel.tasks),
+    'src/panel/tasks.js（tasksIsActive + tasksGroups 进行中/历史 + 已跑时长）')
 
   const runnerSrc = read('lib/node/runner.js')
   check('74', '#26-5 agent 取消真打断：abortPromise 参与 race，ok 排除 aborted',
@@ -956,16 +967,17 @@ check('65', 'eslint 严格档：lint script + 配置文件 + CI job 三件套齐
 {
   const envLib = read('lib/env-check.js')
   const uiSrc2 = read('lib/hub/ui-routes.js')
-  const clientSrc2 = read('lib/client.js')
 
   check('77', '环境体检：共享模块 + 面板路由 + 面板按钮三处都在',
     /export function envChecks/.test(envLib)
     && /export function isLoopbackOrigin/.test(envLib)
     && /export function renderEnvChecks/.test(envLib)
     && /UI_API_PREFIX\}\/env-check/.test(uiSrc2)
-    && /apiGet\('\/env-check'\)/.test(clientSrc2)
-    && /'体检'/.test(clientSrc2),
-    'lib/env-check.js + ui-routes.js /env-check + client.js 体检按钮')
+    && /api\.get\('\/env-check'\)/.test(panel.settings)
+    && /'重新体检'/.test(panel.settings)
+    // 抽屉打开时自动体检一次（首次不用用户点按钮）
+    && /React\.useEffect\(\(\) => \{ alive\.current = true; run\(\); return/.test(bodyOf(panel.settings, 'EnvCard')),
+    'lib/env-check.js + ui-routes.js /env-check + src/panel/settings.js 设置抽屉的体检卡（按钮 + 打开即体检）')
 
   check('78', '环境体检：覆盖静默失败项 + 每条带修法 + 不代下载',
     /'reachability'/.test(envLib)
@@ -1003,7 +1015,6 @@ check('65', 'eslint 严格档：lint script + 配置文件 + CI job 三件套齐
 {
   const indexSrc = read('src/plugin/index.js')
   const patchSrc = read('cordis.patch.yml')
-  const clientSrc3 = read('lib/client.js')
   const setupSrc = read('lib/setup-routes.js')
   const envSrc = read('lib/env-check.js')
   const hubSrc = read('lib/hub/index.js')
@@ -1028,29 +1039,31 @@ check('65', 'eslint 严格档：lint script + 配置文件 + CI job 三件套齐
     'src/plugin/index.js（auto 推断）+ cordis.patch.yml（生效行不碰 webserver + 事故留档）')
 
   check('80', '开箱即用：副机表单简化 + 工作区自动创建 + 首次自动体检',
-    // 工作区预填
-    /function defaultRootsHint/.test(clientSrc3)
-    // 节点 ID 折叠
-    && /默认用主机名/.test(clientSrc3)
-    // 首次自动体检
-    && /autoChecked/.test(clientSrc3)
+    // 工作区：只给按平台的示例占位符，不预填（roots 是安全边界，不能替用户选；~ 开头的路径服务端会拒）
+    /export function settingsRootsExample\(platform\)/.test(panel.settings)
+    && /placeholder: settingsRootsExample\(p\.platform\)/.test(panel.settings)
+    && /s\.startsWith\('~'\)/.test(panel.settings)
+    // 节点 ID 折叠进「高级」（默认用主机名）
+    && /h\(Fold, \{ title: '高级：监听'[\s\S]{0,1600}节点 ID（空 = 自动用本机主机名）/.test(panel.settings)
+    // 首次自动体检（体检卡挂载即跑）
+    && /React\.useEffect\(\(\) => \{ alive\.current = true; run\(\); return/.test(bodyOf(panel.settings, 'EnvCard'))
     // 服务端自动建目录
     && /mkdirSync\(r, \{ recursive: true \}\)/.test(setupSrc)
     && /warnings: applyWarnings/.test(setupSrc),
-    'lib/client.js（预填/折叠/自动体检）+ lib/setup-routes.js（自动建目录）')
+    'src/panel/settings.js（路径示例 / 高级折叠 / 打开即体检）+ lib/setup-routes.js（自动建目录）')
 
   // ── 79b：**所有面向用户的修法文案**都不得建议 0.0.0.0 ──────────────
   //
   // 这是本次事故最有价值的一条守卫：代码自己不能犯那个错，提示文案也不能。
   // 检查的是字符串字面量（`host: '0.0.0.0'` 这种形态），不是注释里的说明。
   check('79b', '所有修法文案都不得建议 host 0.0.0.0（会让 DSH 启动崩溃）',
-    !/host:\s*'0\.0\.0\.0'/.test(clientSrc3)
+    !/host:\s*'0\.0\.0\.0'/.test(client)
     && !/host:\s*'0\.0\.0\.0'/.test(envSrc)
     && !/加 host:\s*'0\.0\.0\.0'/.test(hubSrc)
     // 但要**明确警告不能用**它（否则用户可能自己想到这个"标准做法"）
     && /不能用 0\.0\.0\.0/.test(envSrc)
-    && /不能用 0\.0\.0\.0/.test(clientSrc3),
-    'lib/client.js + lib/env-check.js + lib/hub/index.js（修法不含 0.0.0.0，且有明确警告）')
+    && /不能用 0\.0\.0\.0/.test(panel.settings),
+    'lib/client.js + src/panel/settings.js + lib/env-check.js + lib/hub/index.js（修法不含 0.0.0.0，且有明确警告）')
 }
 
 /* ── 81~82. 工作区 SMB 共享（2026-10-17）──
@@ -1070,7 +1083,6 @@ check('65', 'eslint 严格档：lint script + 配置文件 + CI job 三件套齐
   const shareSvc = read('lib/node/share-service.js')
   const nodeIdx2 = read('lib/node/index.js')
   const uiSrc3 = read('lib/hub/ui-routes.js')
-  const clientSrc4 = read('lib/client.js')
   const transportSrc = read('lib/node/transport.js')
 
   check('81', '工作区共享：协议帧 + E2E 强制 + 独立 pending 表 + 副机 handler 都在',
@@ -1089,9 +1101,8 @@ check('65', 'eslint 严格档：lint script + 配置文件 + CI job 三件套齐
     // 二次确认是硬要求（缺 confirm 必须 400，不能有默认通过）
     /body\?\.confirm !== 'yes'/.test(uiSrc3)
     && /confirm-required/.test(uiSrc3)
-    // 只读默认（最小权限）
-    && /React\.useState\('read'\)/.test(clientSrc4)
-    && /disabled: busy \|\| !ack/.test(clientSrc4)
+    // 只读默认（最小权限）：写权限必须显式传 write，其余一律 read
+    && /body\.access === 'write' \? 'write' : 'read'/.test(uiSrc3)
     // 读写用 -ChangeAccess，不用 -FullAccess（后者会把 ACL 也交出去）
     && /ChangeAccess/.test(shareSvc)
     && !/'-FullAccess'/.test(shareSvc)
@@ -1100,7 +1111,8 @@ check('65', 'eslint 严格档：lint script + 配置文件 + CI job 三件套齐
     && /admin: isAdmin\(\)/.test(nodeIdx2)
     // 共享目录必须过 roots 边界
     && /resolveWorkspace\(/.test(nodeIdx2),
-    'ui-routes.js（二次确认）+ client.js（勾选框/只读默认）+ share-service.js + node/index.js')
+    // 注：面板里的共享界面（旧 SharePanel）从未渲染过、重写时已不存在；这些约束全部在后端路由与副机侧
+    'ui-routes.js（二次确认 + 只读默认）+ share-service.js + node/index.js')
 }
 
 /* ── 83. README 声明的工具数量必须等于代码里实际注册的数量 ──
@@ -1151,7 +1163,6 @@ check('65', 'eslint 严格档：lint script + 配置文件 + CI job 三件套齐
  */
 {
   const uiSrc4 = read('lib/hub/ui-routes.js')
-  const clientSrc5 = read('lib/client.js')
   const setupBin = read('bin/dsh-remote-setup.js')
 
   check('84', 'env-check 路由传解析后角色（v0.9.0 审查 H1：否则 auto 判成非 hub）',
@@ -1167,18 +1178,9 @@ check('65', 'eslint 严格档：lint script + 配置文件 + CI job 三件套齐
     })(),
     'lib/hub/ui-routes.js（role: resolveRole(config) 而非原始 config.role）')
 
-  check('85', 'SMB 面板发真实 dir + CLI doctor 走独立监听判可达性（H2 / M1 / H5）',
-    // H2：不得写死 dir: ''
-    (() => {
-      const i = clientSrc5.indexOf('function doPlan()')
-      if (i < 0) return false
-      const seg = clientSrc5.slice(i, i + 900)
-      return !/dir:\s*''/.test(seg) && /dir:\s*shareDir/.test(seg)
-    })()
-    // H2：必须有目录选择 UI（数据源 node.roots）
-    && /nodeRoots/.test(clientSrc5)
+  check('85', 'CLI doctor 走独立监听判可达性（M1 / H5）',
     // M1：CLI 必须调 envChecks（否则没有 loopback 诊断）
-    && /envChecks/.test(setupBin)
+    /envChecks/.test(setupBin)
     // H5：回环判据必须来自 listen-server（一份实现），不是 CLI 自己拼 origin
     && /isLoopbackHost/.test(setupBin)
     // H5 负向守卫：CLI **不得**再从 patch 里找 webserver 段判可达性。
@@ -1189,7 +1191,8 @@ check('65', 'eslint 严格档：lint script + 配置文件 + CI job 三件套齐
     && !/- id:\s*webserver/.test(stripComments(setupBin))
     // 生效配置以 instance.json 为准（否则体检报告的是已失效的 patch 值）
     && /readInstanceConfig/.test(setupBin),
-    'lib/client.js（dir: shareDir + nodeRoots UI）+ bin/dsh-remote-setup.js（envChecks + listen-server 判据）')
+    // H2（SMB 面板恒发 dir: ''）随旧 SharePanel 一起不存在了；后端的 dir 必填校验见 [82] 的 resolveWorkspace
+    'bin/dsh-remote-setup.js（envChecks + listen-server 判据）')
 }
 
 /* ── 86~87. 独立监听端口（2026-10-18，架构级修复）──
@@ -1245,7 +1248,6 @@ check('65', 'eslint 严格档：lint script + 配置文件 + CI job 三件套齐
 {
   const explainSrc = read('lib/explain-error.js')
   const regSrc = read('lib/hub/node-registry.js')
-  const clientSrc6 = read('lib/client.js')
   const uiSrc5 = read('lib/hub/ui-routes.js')
 
   check('88', '体验④：统一错误翻译层覆盖 errno + 协议码 + HTTP + 文案特征',
@@ -1276,25 +1278,22 @@ check('65', 'eslint 严格档：lint script + 配置文件 + CI job 三件套齐
     // 路由透出
     && /connection: connReport/.test(uiSrc5)
     // 面板渲染诊断（区分"从没连过"与"连过又断"）
-    && /connDiag/.test(clientSrc6)
-    && /everConnected/.test(clientSrc6),
-    'node-registry.js + registry-handshake.js + ui-routes.js + client.js')
+    && /export function fleetAttemptRows\(connection\)/.test(panel.fleet)
+    && /title: '最近连接尝试'[^\n]*open: p\.connection\.everConnected !== true/.test(panel.fleet)
+    && /conn\.everConnected !== true/.test(panel.fleet),
+    'node-registry.js + registry-handshake.js + ui-routes.js + src/panel/fleet.js（最近连接尝试 + 没连上过的提示）')
 
   check('90', '体验②③⑤：复制修法按钮 + 编号步骤 + 任务进度摘要',
     // ② 复制修法
-    /复制修法/.test(clientSrc6)
-    && /copyText\(it\.fix\)/.test(clientSrc6)
-    // ③ 编号步骤（hub 侧 1-4 步）
-    && /'重启 DSH'/.test(clientSrc6)
-    && /'生成配对码'/.test(clientSrc6)
-    && /'在副机上粘贴'/.test(clientSrc6)
-    && /'等它连上'/.test(clientSrc6)
-    // ③ 角色选择提示
-    && /你现在用的这台/.test(clientSrc6)
+    /label: '复制修法', text: it\.fix/.test(panel.settings)
+    // ③ 编号步骤（hub 侧 1-4 步，有序列表）
+    && /h\('ol', \{ className: 'fl-steps' \}, \['重启 DSH', '生成配对码', '在副机上粘贴', '等它连上'\]/.test(panel.fleet)
+    // ③ 角色提示
+    && /你现在用的这台是主机/.test(panel.fleet)
     // ⑤ 任务行进度摘要
-    && /progressLine/.test(clientSrc6)
-    && /最近：/.test(clientSrc6),
-    'lib/client.js（复制按钮 + 编号步骤 + 角色提示 + 任务进度摘要）')
+    && /export function tasksProgressLine\(t\)/.test(panel.tasks)
+    && /'最近：' \+ line/.test(panel.tasks),
+    'src/panel/settings.js（复制修法）+ src/panel/fleet.js（编号步骤 + 角色提示）+ src/panel/tasks.js（任务进度摘要）')
 }
 
 /* ── 91~94. 四项新能力（2026-10-20）──
@@ -1313,7 +1312,6 @@ check('65', 'eslint 严格档：lint script + 配置文件 + CI job 三件套齐
   const fsSrc = read('lib/node/fs-service.js')
   const procSrc = read('lib/node/process-service.js')
   const toolsSrc2 = read('lib/hub/tools.js')
-  const clientSrc7 = read('lib/client.js')
   const uiSrc6 = read('lib/hub/ui-routes.js')
 
   check('91', '一键修复：只改托管块 + 备份 + 写后校验 + 二次确认 + 可撤销',
@@ -1375,16 +1373,15 @@ check('65', 'eslint 严格档：lint script + 配置文件 + CI job 三件套齐
     'lib/external-tools.js（探测 + 说明 + 命令，不执行）')
 
   check('95', 'UI：折叠区块（信息密度）—— 首屏只留当下需要的',
-    // 原生 details（零 JS 状态）
-    /className: 'dra-fold'/.test(clientSrc7)
-    && /<details|h\('details'/.test(clientSrc7)
+    // 原生 details（零 JS 状态），open 只作初值
+    /h\('details', \{ className: 'dra-fold', open: p\.open === true \? true : undefined \}/.test(panel.core)
     // 折叠样式
-    && /\.dra-fold/.test(clientSrc7)
-    // 默认展开策略：没节点时展开接入
-    && /open: state\.nodes\.length === 0/.test(clientSrc7)
-    // 体检有失败项时默认展开
-    && /open: Boolean\(envCheck && envCheck\.failed > 0\)/.test(clientSrc7),
-    'lib/client.js（Fold 组件 + dra-fold 样式 + 默认展开策略）')
+    && /\.dra-fold\{/.test(panel.styles) && /\.dra-fold\[open\]/.test(panel.styles)
+    // 默认展开策略：没节点时展开「添加机器」；没连上过时展开连接尝试；高级字段有错时展开
+    && /title: '添加机器'[^\n]*open: !hub\.loading && nodes\.length === 0/.test(panel.fleet)
+    && /title: '最近连接尝试'[^\n]*open: p\.connection\.everConnected !== true/.test(panel.fleet)
+    && /title: '高级：监听'[^\n]*open: advErr/.test(panel.settings),
+    'src/panel/core.js（Fold 组件）+ styles.js（dra-fold）+ fleet.js / settings.js（默认展开策略）')
 }
 
 /* ── 96. README 必须介绍四项新能力（2026-10-20）──

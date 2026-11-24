@@ -10,25 +10,14 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
-import { fileURLToPath } from 'node:url'
 
 import { registerUiRoutes, UI_API_PREFIX } from '../../src/http/index.js'
 import { currentPatchFile, registerSetupRoutes } from '../../lib/setup-routes.js'
 import { MANAGED_BEGIN, MANAGED_END } from '../../lib/setup.js'
+import { settingsApplyPayload, settingsEmptyForm } from '../../src/panel/settings.js'
 
-const HERE = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(HERE, '..', '..')
-const CLIENT = readFileSync(path.join(ROOT, 'lib', 'client.js'), 'utf8')
 const HUB_TOKEN = 'hub-secret-do-not-leak'
 const MINT_PATH = `${UI_API_PREFIX}/mint-enroll`
-
-function sliceFn(src, name, next) {
-  const start = src.indexOf(`function ${name}`)
-  assert.ok(start >= 0, `缺少 function ${name}`)
-  const end = src.indexOf(`function ${next}`, start + 1)
-  assert.ok(end > start, `${name} 后面应该是 ${next}`)
-  return src.slice(start, end)
-}
 
 function mountUi(config) {
   const routes = new Map()
@@ -90,7 +79,7 @@ function startFakeRelay(onRequest) {
       req.on('data', (c) => chunks.push(c))
       req.on('end', () => {
         const raw = Buffer.concat(chunks).toString('utf8')
-        let json = {}
+        let json
         try { json = raw ? JSON.parse(raw) : {} } catch { json = {} }
         onRequest(req, res, json)
       })
@@ -271,25 +260,7 @@ test('跨站请求被守卫拦住，且不打中继', async () => {
   }
 })
 
-test('面板走 /mint-enroll，只显示一次口令，不回显 hubToken', () => {
-  const enroll = sliceFn(CLIENT, 'EnrollPanel(props)', 'EnvPanel(props)')
-  assert.match(enroll, /\+ 添加副机/)
-  assert.match(enroll, /15 分钟内有效，仅显示这一次/)
-  assert.equal(enroll.includes('hubToken'), false)
-  const mint = sliceFn(CLIENT, 'mintEnroll()', 'previewFix()')
-  assert.match(mint, /\/mint-enroll/)
-  assert.equal(mint.includes('/relay-enroll'), false, '面板不得再打旧的 /relay-enroll')
-  assert.equal(mint.includes('enrollNodeId'), false, '面板不再持有没人写的 enrollNodeId')
-  assert.match(mint, /apiPost\('\/mint-enroll', \{\}\)/)
-})
-
 test('Hub 模式提交 relayUrl 后 /apply 落盘', async () => {
-  const start = CLIENT.indexOf('function submit(kind, opts)')
-  const end = CLIENT.indexOf('const submitHub', start)
-  const submit = CLIENT.slice(start, end)
-  assert.match(submit, /body\.relayUrl = relayUrl\.trim\(\)/)
-  assert.equal(submit.includes("use !== 'hub'"), false, 'Hub 表单不得跳过 relayUrl')
-
   const home = path.join(tmpdir(), `mint-apply-${Date.now()}-${Math.random().toString(16).slice(2)}`)
   const file = path.join(home, 'profiles', 'web', 'cordis.patch.yml')
   mkdirSync(path.dirname(file), { recursive: true })
@@ -311,9 +282,10 @@ test('Hub 模式提交 relayUrl 后 /apply 落盘', async () => {
       },
     }, { role: 'hub', transportMode: 'relay', stateDir: path.join(home, 'state') }, () => {})
     const wanted = 'ws://203.0.113.10:8890/relay'
-    const res = await invoke(routes.get('/api/remote-agent/setup/apply'), {
-      body: { role: 'hub', transportMode: 'relay', relayUrl: wanted },
-    })
+    // 载荷由面板向导真正的构造函数生成：Hub 表单不得跳过 relayUrl
+    const body = settingsApplyPayload('hub', Object.assign(settingsEmptyForm(), { relayUrl: wanted }))
+    assert.equal(body.relayUrl, wanted)
+    const res = await invoke(routes.get('/api/remote-agent/setup/apply'), { body })
     assert.equal(res.status, 200, res.raw)
     const written = readFileSync(file, 'utf8')
     assert.match(written, /relayUrl: 'ws:\/\/203\.0\.113\.10:8890\/relay'/)

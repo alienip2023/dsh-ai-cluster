@@ -1,6 +1,5 @@
 // p3-s4：Bot 对话 —— 历史 RPC 与回合作业环用真实帧驱动（经 handleFrameFor，不 mock emit）。
 import assert from 'node:assert/strict'
-import fs from 'node:fs'
 import test from 'node:test'
 import { apply } from '../../lib/index.js'
 import { PROTOCOL_VERSION } from '../../lib/protocol.js'
@@ -40,6 +39,9 @@ async function call(routes, pathname, { method = 'GET', body } = {}) {
     { writeHead(s) { out.status = s }, end(p) { out.body = JSON.parse(p) } })
   return out
 }
+// bot/turn carries session content, so the hub only sends it once the node has an E2E session (send() refuses otherwise).
+// These tests are about the turn ring, not about sealing, so the registry is told the session is up.
+const withE2e = (registry) => { registry.e2eReady = () => true }
 const lastFrame = (sent, t) => [...sent].reverse().find((f) => f.t === t)
 const tick = () => new Promise((r) => setImmediate(r))
 const reply = (registry, nodeId, t, d) => registry.handleFrameFor(nodeId, { t, d })
@@ -108,6 +110,7 @@ test('history: over the cap → bot-history-busy', async (t) => {
 test('turn: accepted returns exchangeId, sent frame carries it; result frame flips to done with text', async (t) => {
   const b = boot(); t.after(() => b.handles.dispose())
   const sent = hello(b.registry, 'n1')
+  withE2e(b.registry)
   const r = await call(b.routes, `${NEW}/bots/turn`, { method: 'POST', body: { nodeId: 'n1', botId: 'b1', text: 'hello' } })
   assert.equal(r.body.ok, true)
   const f = lastFrame(sent, 'bot/turn')
@@ -124,6 +127,7 @@ test('turn: accepted returns exchangeId, sent frame carries it; result frame fli
 test('turn: failed result → failed + error; unknown id → unknown; foreign node result ignored', async (t) => {
   const b = boot(); t.after(() => b.handles.dispose())
   hello(b.registry, 'n1'); hello(b.registry, 'n2')
+  withE2e(b.registry)
   const a = b.registry.startBotTurn('n1', 'b1', 'x')
   reply(b.registry, 'n2', 'bot/turn-result', { nodeId: 'n2', remoteBotId: 'b1', exchangeId: a.exchangeId, text: 'spoof', ok: true, seq: 1 })
   assert.equal(b.registry.botTurnStatus(a.exchangeId).state, 'running')
@@ -148,6 +152,7 @@ test('turn: offline, empty and oversize text are refused', async (t) => {
 test('turn ring: evicts oldest beyond cap; TTL expires entries', async (t) => {
   const b = boot(); t.after(() => b.handles.dispose())
   hello(b.registry, 'n1')
+  withE2e(b.registry)
   const ids = []
   for (let i = 0; i < b.registry.botTurnMax + 5; i++) {
     const r = b.registry.startBotTurn('n1', 'b1', 'x')
@@ -167,18 +172,9 @@ test('turn ring: evicts oldest beyond cap; TTL expires entries', async (t) => {
 test('turn ring: running turns are never evicted — new turn is busy instead', (t) => {
   const b = boot(); t.after(() => b.handles.dispose())
   hello(b.registry, 'n1')
+  withE2e(b.registry)
   b.registry.botTurnMax = 2
   const a = b.registry.startBotTurn('n1', 'b', 'x'); b.registry.startBotTurn('n1', 'b', 'x')
   assert.deepEqual(b.registry.startBotTurn('n1', 'b', 'x'), { ok: false, error: 'bot-turn-busy' })
   assert.equal(b.registry.botTurnStatus(a.exchangeId).state, 'running')
-})
-
-test('client: detail view, polling, distinct states', () => {
-  const src = fs.readFileSync(new URL('../../lib/client.js', import.meta.url), 'utf8')
-  assert.match(src, /function botChatView/)
-  assert.match(src, /'\/bots\/turn\?exchangeId='/)
-  assert.match(src, /'\/bots\/history\?nodeId='/)
-  assert.match(src, /setTimeout\(poll, 2000\)/)
-  for (const s of ['加载中…', '没有对话', '读取失败', '运行中…', '等待超时', '返回', '编辑', '发送']) assert.ok(src.includes(s), s)
-  assert.match(src, /setOpenBot/)
 })

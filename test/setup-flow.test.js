@@ -37,7 +37,6 @@ const stripComments = (src) => src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|
 // test/phase1/entry-shim.test.js.
 const indexSrc = read('src/plugin/index.js')
 const setupRoutes = read('lib/setup-routes.js')
-const client = read('lib/client.js')
 const patch = read('cordis.patch.yml')
 
 /* ─────────────── 1. role 默认必须是"未配置" ─────────────── */
@@ -233,100 +232,7 @@ test('包内 cordis.patch.yml：inject 取 hub 全集，role 为空', () => {
   assert.match(patch, /role: ''/, "包内 role 默认应为空（未配置）")
 })
 
-/* ─────────────── 4. client 半的引导视图 ─────────────── */
-
-test('client 有 setup 模式与对应端点常量', () => {
-  assert.match(client, /SETUP_STATE_PATH = ['"]\/api\/remote-agent\/setup\/state['"]/, '应定义 SETUP_STATE_PATH')
-  assert.match(client, /SETUP_APPLY_PATH = ['"]\/api\/remote-agent\/setup\/apply['"]/, '应定义 SETUP_APPLY_PATH')
-  assert.match(client, /mode: 'setup'/, "应支持 mode: 'setup'")
-})
-
-test('未配置进 setup，主机读失败不改画副机', () => {
-  const code = stripComments(client)
-  assert.match(code, /mode: 'setup'/, '未配置仍应进 setup')
-  const i = code.indexOf("apiGet('/overview')")
-  assert.ok(i >= 0, '应有 hub 探测')
-  const seg = code.slice(i, i + 3200)
-  assert.ok(!/mode: 'worker'/.test(seg), 'overview 失败不得改成 worker')
-})
-
-test('client 有 SetupView 组件且能写入', () => {
-  assert.match(client, /function SetupView\(/, '应定义 SetupView')
-  const code = stripComments(client)
-  const i = code.indexOf('function SetupView(')
-  const seg = code.slice(i, i + 20000)
-  // 三个选择都要有
-  assert.ok(seg.includes('我是主机'), '应有「我是主机」')
-  assert.ok(seg.includes('我是副机'), '应有「我是副机」')
-  assert.ok(seg.includes('同机自测'), '应有「同机自测」')
-  // 副机表单要填的字段
-  assert.ok(seg.includes('配对码'), '副机表单应有配对码输入')
-  assert.ok(seg.includes('工作区'), '副机表单应有工作区输入')
-  // 提交走 SETUP_APPLY_PATH
-  assert.match(seg, /fetch\(SETUP_APPLY_PATH/, '提交应走 SETUP_APPLY_PATH')
-})
-
-test('SetupView 会解析配对码（粘贴即填）', () => {
-  const code = stripComments(client)
-  const i = code.indexOf('function SetupView(')
-  const seg = code.slice(i, i + 20000)
-  assert.match(seg, /dshra1:\\\/\\\//, '应识别 dshra1:// 前缀')
-  assert.match(seg, /window\.atob\(/, '应 base64 解码')
-  // 解析后要填进表单
-  assert.match(seg, /n\.hubUrl = d\.hubUrl/, '解析结果应填进 hubUrl')
-})
-
-test('SetupView 的结果页提示"重启生效"', () => {
-  const code = stripComments(client)
-  const i = code.indexOf('function SetupView(')
-  const seg = code.slice(i, i + 20000)
-  assert.match(seg, /重启 DSH/, '结果页必须提示重启 —— 配置改动不会热生效')
-})
-
-test('提示（note/conflict）必须渲染在按钮**上方**', () => {
-  // ═══════════════════════════════════════════════════════════════════════════
-  // 实测踩过：提示原先放在按钮下方，用户点完按钮后视线停在按钮处，
-  // 而面板滚动位置没变 —— 提示在折叠线以下看不见，用户以为"点了没反应"。
-  // 第一次验收就是这样：截图只到按钮为止，看不到任何反馈。
-  // ═══════════════════════════════════════════════════════════════════════════
-  const code = stripComments(client)
-  const i = code.indexOf('function SetupView(')
-  const seg = code.slice(i, i + 20000)
-
-  // worker 表单：「确认，写入配置」按钮
-  const btnIdx = seg.indexOf("submit('worker')")
-  assert.ok(btnIdx >= 0, '应找到 worker 提交按钮')
-  const noteIdx = seg.indexOf("className: 'dra-err'", Math.max(0, btnIdx - 2500))
-  const conflictIdx = seg.indexOf("className: 'dra-warn'", Math.max(0, btnIdx - 2500))
-  assert.ok(noteIdx >= 0, 'worker 表单应有 note 渲染')
-  assert.ok(conflictIdx >= 0, 'worker 表单应有 conflict 渲染')
-  assert.ok(noteIdx < btnIdx, 'note 必须在提交按钮**上方**（否则用户看不到反馈）')
-  assert.ok(conflictIdx < btnIdx, 'conflict 必须在提交按钮**上方**')
-
-  // hub 表单同理
-  const hubBtn = seg.indexOf("submit('hub')")
-  assert.ok(hubBtn >= 0, '应找到 hub 提交按钮')
-  const hubNote = seg.indexOf("className: 'dra-err'", Math.max(0, hubBtn - 2500))
-  assert.ok(hubNote >= 0 && hubNote < hubBtn, 'hub 表单的 note 也必须在按钮上方')
-
-  // 选择页：note 应在卡片之前
-  const cardIdx = seg.indexOf('dra-choices')
-  const chooseNote = seg.indexOf("className: 'dra-err'", Math.max(0, cardIdx - 1500))
-  assert.ok(chooseNote >= 0 && chooseNote < cardIdx, '选择页的 note 应在卡片之前')
-})
-
-test('冲突提示在三处表单都提供（选择页 / 主机页 / 副机页）', () => {
-  // 用户可能在任一步骤点提交，三处都必须能显示冲突 + 提供"替换"按钮。
-  const code = stripComments(client)
-  const i = code.indexOf('function SetupView(')
-  const seg = code.slice(i, i + 20000)
-  const warns = (seg.match(/className: 'dra-warn'/g) || []).length
-  assert.ok(warns >= 3, `冲突提示应出现在三处表单（实际 ${warns} 处）`)
-  const forces = (seg.match(/force: true/g) || []).length
-  assert.ok(forces >= 3, `"替换手写配置"按钮应出现在三处（实际 ${forces} 处）`)
-})
-
-/* ─────────────── 5. 切换角色（已配置后改） ─────────────── */
+/* ─────────────── 4. 切换角色（已配置后改）。面板半边的向导/切换行为见 test/panel/settings.test.js ─────────────── */
 
 test('setup state 如实报告 configured（面板据此区分引导/切换）', () => {
   const code = stripComments(setupRoutes)
@@ -354,38 +260,6 @@ test('setup state 如实报告 configured（面板据此区分引导/切换）',
   for (const k of ['nodeId', 'transportMode', 'hubUrl', 'relayUrl', 'roots']) {
     assert.match(seg, new RegExp(`${k}:`), `current 应回显 ${k}`)
   }
-})
-
-test('client：设置区有「切换角色」按钮', () => {
-  const code = stripComments(client)
-  assert.match(code, /'切换角色'/, '设置区应有「切换角色」按钮')
-  // 点击后应打开 SetupView（不是另写一套写盘逻辑）
-  const i = code.indexOf("'切换角色'")
-  const seg = code.slice(Math.max(0, i - 600), i + 200)
-  assert.match(seg, /setSwitchRole\(true\)/, '点击应打开切换视图')
-})
-
-test('client：切换模式复用 SetupView（写盘只有一份实现）', () => {
-  const code = stripComments(client)
-  // switching 时渲染 SetupView
-  const i = code.indexOf('if (switchRole)')
-  assert.ok(i >= 0, '应有 switchRole 渲染分支')
-  const seg = code.slice(i, i + 1200)
-  assert.match(seg, /h\(SetupView,/, '切换应复用 SetupView')
-  assert.match(seg, /switching: true/, '应传 switching 标记')
-  assert.match(seg, /onCancel/, '应传 onCancel（能退出切换）')
-  // 不得出现第二份 fetch(SETUP_APPLY_PATH)
-  const applyCount = (code.match(/fetch\(SETUP_APPLY_PATH/g) || []).length
-  assert.equal(applyCount, 1, `写盘调用应只有一处（实际 ${applyCount}）—— 重复实现会走偏`)
-})
-
-test('SetupView 的 switching 模式回填当前值并显示当前角色', () => {
-  const code = stripComments(client)
-  const i = code.indexOf('function SetupView(')
-  const seg = code.slice(i, i + 1400)
-  assert.match(seg, /(?:var|let|const) switching = props\.switching === true/, '应识别 switching')
-  assert.match(seg, /cur\.hubUrl \|\| ''/, '应回填当前 hubUrl')
-  assert.match(seg, /cur\.roots/, '应回填当前 roots')
 })
 
 test('切换会同时改写 inject（用户不用手动改两处）', () => {

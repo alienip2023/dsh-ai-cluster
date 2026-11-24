@@ -20,6 +20,12 @@ export default [
   },
   js.configs.recommended,
   {
+    // 浏览器半边的源码（构建成 lib/client.js）：跑在浏览器里，不是 Node。
+    files: ['src/panel/**/*.js'],
+    languageOptions: { ecmaVersion: 'latest', sourceType: 'module', globals: { ...globals.browser } },
+    rules: { 'no-var': 'error', 'prefer-const': 'error', eqeqeq: ['error', 'always', { null: 'ignore' }] },
+  },
+  {
     files: ['lib/**/*.js', 'bin/**/*.js', 'scripts/**/*.mjs', 'eslint.config.js'],
     languageOptions: {
       ecmaVersion: 'latest',

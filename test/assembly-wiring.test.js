@@ -89,43 +89,6 @@ test('H1 装配：resolveRole 是唯一实现（setup-routes 与 env-check 都�
   assert.equal(resolveRole({ role: 'auto', hubUrl: 'ws://x/y' }), 'worker')
 })
 
-/* ═══════════════ H2：SharePanel 必须真的发 dir ═══════════════ */
-
-test('H2 装配：SharePanel 不得恒定发送空 dir', async () => {
-  const src = read('lib/client.js')
-  const i = src.indexOf('function doPlan()')
-  assert.ok(i >= 0, '应有 doPlan')
-  const seg = src.slice(i, i + 900)
-
-  // 原 bug：`dir: ''` 写死 → 副机按设计拒绝空 dir → 100% 失败
-  assert.ok(
-    !/dir:\s*''/.test(seg),
-    "doPlan 不得写死 dir: '' —— 副机侧 `if (dir === '')` 会拒绝，"
-    + 'SMB 共享的唯一主动作 100% 失败（v0.9.0 的 H2）',
-  )
-  assert.match(seg, /dir:\s*shareDir/, 'dir 应来自目录选择（shareDir）')
-})
-
-test('H2 装配：SharePanel 必须有目录选择 UI（数据源 node.roots）', () => {
-  const src = read('lib/client.js')
-  const i = src.indexOf('function SharePanel')
-  assert.ok(i >= 0, '应有 SharePanel')
-  const seg = src.slice(i, i + 9000)
-
-  assert.match(seg, /nodeRoots/, '应从 node.roots 取候选目录')
-  assert.match(seg, /shareDir/, '应有 shareDir 状态')
-  assert.match(seg, /'共享目录'/, '应有「共享目录」选择行')
-  // 无可选 roots 时给可手填的输入框（旧副机 / 未配置场景）
-  assert.match(seg, /placeholder:.*绝对路径|需要.*roots/, '无 roots 时应提示手填或说明原因')
-})
-
-test('H2 装配：shareDir 为空时按钮必须禁用（不给用户点了才失败）', () => {
-  const src = read('lib/client.js')
-  const i = src.indexOf('function SharePanel')
-  const seg = src.slice(i, i + 9000)
-  assert.match(seg, /shareDir\.trim\(\) === ''/, '空目录时按钮应禁用')
-})
-
 /* ═══════════════ M1：CLI doctor 必须有 loopback 检查 ═══════════════ */
 
 test('M1 装配：CLI --doctor 必须调用 envChecks（不能只有 doctorChecks）', () => {

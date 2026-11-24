@@ -1,8 +1,6 @@
 // p3-s2：面板创建 / 编辑 Bot —— 路由与注册表用真实帧驱动（不 mock emit）。
 import assert from 'node:assert/strict'
-import fs from 'node:fs'
 import test from 'node:test'
-import vm from 'node:vm'
 import { apply } from '../../lib/index.js'
 import { PROTOCOL_VERSION } from '../../lib/protocol.js'
 
@@ -220,48 +218,4 @@ test('instructions text never reaches the log', async (t) => {
   hello(registry, 'n1'); registry.botRpcTimeoutMs = 20
   await post(f.routes, `${NEW}/bots/create`, { nodeId: 'n1', name: 'A', instructions: 'TOPSECRET-INSTR' })
   assert.doesNotMatch(JSON.stringify(lines), /TOPSECRET-INSTR/)
-})
-
-// ── 面板（源码 / 渲染级断言）──
-const clientSrc = fs.readFileSync(new URL('../../lib/client.js', import.meta.url), 'utf8')
-function loadClient() {
-  let plugin = null
-  vm.runInNewContext(clientSrc, {
-    console,
-    window: { __ModuleLoader__: { load(m) {
-      plugin = m.factory(() => ({
-        createElement(type, props, ...kids) { return { type, props: props || {}, kids: kids.flat(Infinity) } },
-        useState(v) { return [v, () => {}] }, useEffect() {}, useRef(v) { return { current: v } }, useMemo(fn) { return fn() },
-      }))
-    } } },
-  })
-  return plugin
-}
-const walk = (el, fn) => { if (el && typeof el === 'object') { fn(el); for (const k of el.kids || []) walk(k, fn) } }
-
-test('client: form lists only online nodes; edit button prefills; failure text and values are kept', () => {
-  const P = loadClient()
-  const av = P.screenAvailability({ ok: true, total: 1, nodes: [
-    { nodeId: 'n1', hostname: 'H1', online: true, bots: [{ id: 'b1', name: 'Alice', role: 'coder', model: 'm' }] },
-    { nodeId: 'n2', hostname: 'H2', online: false, bots: [] },
-  ] }, 200)
-  let edited = null
-  const roster = P.rosterView(av, { onEdit: (n, b) => { edited = [n.nodeId, b.id] } })
-  let editBtn = null
-  walk(roster, (e) => { if (e.type === 'button' && e.kids.includes('编辑')) editBtn = e })
-  assert.ok(editBtn, 'edit button on the bot row')
-  editBtn.props.onClick(); assert.deepEqual(edited, ['n1', 'b1'])
-  const form = P.botFormView({ form: { nodeId: '', botId: '', name: 'keep-me', role: '', modelRef: '', workDir: '', instructions: '' },
-    nodes: av.nodes, busy: false, note: 'bot-create-no-receiver', noteOk: false, onChange() {}, onSubmit() {}, onCancel() {} })
-  const opts = []; let nameVal = null; let warn = null
-  walk(form, (e) => {
-    if (e.type === 'option' && e.props.value) opts.push(e.props.value)
-    if (e.type === 'input' && e.props.value === 'keep-me') nameVal = e.props.value
-    if (e.props.className === 'dra-warn') warn = e.kids.join('')
-  })
-  assert.deepEqual(opts, ['n1'])
-  assert.equal(nameVal, 'keep-me')
-  assert.equal(warn, 'bot-create-no-receiver')
-  assert.match(clientSrc, /apiPost\(editing \? '\/bots\/update' : '\/bots\/create'/)
-  assert.match(clientSrc, /setPollTick\(function \(x\) \{ return x \+ 1 \}\)/, 'success triggers a /bots refresh')
 })

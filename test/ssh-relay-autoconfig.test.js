@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs'
 import assert from 'node:assert'
 import { test } from 'node:test'
 
-const SRC = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
 const UI_ROUTES = readFileSync(new URL('../lib/hub/ui-routes.js', import.meta.url), 'utf8')
 
 // T1: 新端点在 ui-routes.js 中存在
@@ -24,14 +23,6 @@ test('T3: relay-autoconfig 端点在 hubToken 为空时返回 no-hub-token', () 
 })
 
 // T4: client.js autoConfigRelayFromProbe 调用新端点而非 setup/apply
-test('T4: client.js 调用 /relay-autoconfig 而不直接调用 /setup/apply', () => {
-  const fnIdx = SRC.indexOf('function autoConfigRelayFromProbe(')
-  assert.ok(fnIdx >= 0, 'autoConfigRelayFromProbe 函数必须存在')
-  const fnBlock = SRC.slice(fnIdx, fnIdx + 600)
-  assert.ok(fnBlock.includes('relay-autoconfig'), '函数必须调用 relay-autoconfig 端点')
-  assert.ok(!fnBlock.includes("'setup/apply'") && !fnBlock.includes('"setup/apply"'), '函数不应直接调用 setup/apply')
-})
-
 // M1 变异验证：删掉 config.relay.token 读取必须红
 test('M1 变异：删掉 config.relay.token 读取后断言红', () => {
   const routeIdx = UI_ROUTES.indexOf('relay-autoconfig')

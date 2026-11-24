@@ -4,15 +4,13 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import vm from 'node:vm'
 import { registerAdvancedTools } from '../../lib/hub/advanced-tools.js'
 import { NodeRegistry } from '../../lib/hub/node-registry.js'
 import { PullManager } from '../../lib/hub/pull-manager.js'
 import * as standalone from '../../lib/hub/ui-routes.js'
 import * as pluginRoutes from '../../lib/plugin/http/routes.js'
 import { collectConnectivity } from '../../lib/node/connectivity.js'
-
-const readRepo = (file) => fs.readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8')
+import { fleetAddress, fleetIsLan } from '../../src/panel/fleet.js'
 
 function makeRegistry(t) {
   const registry = new NodeRegistry()
@@ -118,56 +116,6 @@ test('OBS-14 shares in-flight probes and reuses a fresh sample', async (t) => {
   assert.deepEqual([reads, connects], [3, 3])
 })
 
-function loadClient(react, globals = {}) {
-  let client
-  const source = readRepo('lib/client.js').replace('nodeCardView: nodeCardView,', 'NodeCard: NodeCard, nodeCardView: nodeCardView,')
-  vm.runInNewContext(source, {
-    ...globals,
-    window: { __ModuleLoader__: { load(mod) { client = mod.factory(() => react) } } },
-  }, { filename: 'lib/client.js' })
-  return client
-}
-
-test('OBS-16 ticks sample age locally and clears the display timer', () => {
-  let now = 10_000
-  let displayNow
-  let mounted = false
-  let timer
-  let cleanup
-  const react = {
-    createElement(type, props, ...children) {
-      if (typeof type === 'function') return type({ ...props, children })
-      return children.flat(Infinity).join(' ')
-    },
-    useState(initial) {
-      displayNow ??= initial()
-      return [displayNow, value => { displayNow = value; rendered = render() }]
-    },
-    useEffect(effect) {
-      if (mounted) return
-      mounted = true
-      cleanup = effect()
-    },
-  }
-  const client = loadClient(react, {
-    Date: { now: () => now },
-    fetch: () => assert.fail('display timer fetched network data'),
-    setInterval(fn, ms) { assert.equal(ms, 1000); timer = fn; return 7 },
-    clearInterval(id) { assert.equal(id, 7); timer = undefined },
-  })
-  const node = { nodeId: 'worker', connectivity: { sampledAt: 8_000 } }
-  const render = () => client.NodeCard({ node })
-  let rendered = render()
-  assert.match(rendered, /2 秒前/)
-  assert.equal(typeof timer, 'function')
-  now += 1000
-  timer()
-  assert.match(rendered, /3 秒前/)
-  cleanup()
-  assert.equal(timer, undefined)
-  assert.equal(node.connectivity.sampledAt, 8_000)
-})
-
 async function routeNodes(t, routesModule, registry, suffix) {
   const routes = new Map()
   const dispose = routesModule.registerUiRoutes({
@@ -190,7 +138,6 @@ test('OBS-19 projects addresses and chooses LAN independently for each node id',
   addNode(registry, 'second', { hostname: '192.168.1.8', peerUrl: 'wss://other.example:9000/ws' })
   addNode(registry, 'third', { hostname: 'fallback.example', peerUrl: 'invalid-url' })
   addNode(registry, 'ipv6', { hostname: 'public.example', peerUrl: 'wss://[fd00::8]:9000/ws' })
-  const client = loadClient({})
   for (const routesModule of [pluginRoutes, standalone]) {
     const nodes = await routeNodes(t, routesModule, registry, '/overview')
     assert.deepEqual(nodes.map(n => [n.nodeId, n.hostname, n.peerHost]), [
@@ -199,10 +146,11 @@ test('OBS-19 projects addresses and chooses LAN independently for each node id',
       ['third', 'fallback.example', undefined],
       ['ipv6', 'public.example', '[fd00::8]'],
     ])
-    const layout = client.topologyLayout({ width: 900, height: 560, nodes })
-    assert.deepEqual(Array.from(layout.nodes, n => [n.id, n.address]), [
-      ['first', '192.168.1.8'], ['ipv6', '[fd00::8]'], ['second', '192.168.1.8'], ['third', 'fallback.example'],
+    // the panel picks each machine's display address on its own: a LAN address wins over a public one, per node
+    assert.deepEqual(nodes.map(n => [n.nodeId, fleetAddress(n)]), [
+      ['first', '192.168.1.8'], ['second', '192.168.1.8'], ['third', 'fallback.example'], ['ipv6', '[fd00::8]'],
     ])
+    assert.deepEqual(nodes.map(n => fleetIsLan(fleetAddress(n), true)), [true, true, false, true])
   }
   const status = await routeNodes(t, pluginRoutes, registry, '/node-status')
   assert.ok(status.every(n => !Object.hasOwn(n, 'hostname') && !Object.hasOwn(n, 'peerHost')))

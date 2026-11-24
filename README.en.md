@@ -13,8 +13,8 @@ dsh plugin install <tgz>
 ```
 
 1. Enable the hub. In its panel, open the worker onboarding card and copy the `pair` configuration line.
-2. Enable the worker, enter the pairing code, and set `roots` to the local directories it can access. Check that the worker appears online in the hub’s Computers tab.
-3. In the Assignments tab, choose a node and task type, then enter the task. For agent tasks, you can specify a model with `model`.
+2. Enable the worker, enter the pairing code, and set `roots` to the local directories it can access. Check that the worker appears online in the hub’s Machines tab.
+3. In the Tasks tab, choose a node and task type, then enter the task. For agent tasks, you can specify a model with `model`.
 
 Use `bin/dsh-remote-setup.js` (command name `dsh-remote-setup`) to generate configuration, or run it with `--doctor` to check your configuration. On Windows, double-click `bin/setup.cmd` to open the wizard. See the [deployment guide](profiles/README.md) for full configuration instructions.
 
@@ -27,7 +27,7 @@ Use `bin/dsh-remote-setup.js` (command name `dsh-remote-setup`) to generate conf
 
 ## 3. Panel and LAN discovery
 
-The hub panel has five tabs for computers, assignments, bots, models, and memory. The Settings button in the toolbar opens configuration and discovery controls. You can turn LAN discovery on or off and manually scan for nearby nodes. Discovery lists candidates, and workers still need to pair to join. Enable discovery only on trusted LANs.
+The hub panel has four tabs: Overview (topology, connection diagnostics, node versions, undelivered messages), Machines (nodes, Add a machine, SSH deploy, and LAN discovery, which you can turn on or off and use to manually scan for nearby nodes), Team (the Bots on each machine, the model catalog, and team memory), and Tasks (dispatch and manage tasks). The Settings drawer in the toolbar holds the local role, connection configuration, the environment check, and the reliable-link queue of undelivered messages. Discovery lists candidates, and workers still need to pair to join. Enable discovery only on trusted LANs.
 
 ## 4. Connections and transfers
 

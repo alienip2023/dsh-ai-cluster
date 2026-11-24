@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict'
-import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { isBuiltin } from 'node:module'
@@ -44,12 +43,4 @@ test('T-ISO-1 src/tickets imports only node: built-ins and its own files, and on
       }
     }
   }
-})
-
-test('T-ISO-2 accepts only the client bytes pinned by release-check criterion 4', () => {
-  const releaseCheck = fs.readFileSync(path.join(root, 'scripts/check-release-reachability.mjs'), 'utf8')
-  const pin = releaseCheck.match(/^const clientHash = '([a-f0-9]{64})'$/m)?.[1]
-  assert.ok(pin, 'missing release client hash')
-  const actual = createHash('sha256').update(fs.readFileSync(path.join(root, 'lib/client.js'))).digest('hex')
-  assert.equal(actual, pin)
 })

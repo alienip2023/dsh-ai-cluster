@@ -3,19 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
-const ROOT = fileURLToPath(new URL('..', import.meta.url))
-
-function src(rel) { return readFileSync(fileURLToPath(new URL(join_path(rel), import.meta.url)), 'utf-8') }
-function join_path(rel) { return '../' + rel }
-
 /* ── Bug 1: hub submit body 包含 hubToken/relayToken ──────────────────── */
-
-test('B1: relay 模式 submit body 包含 hubToken', () => {
-  const s = readFileSync(fileURLToPath(new URL('../lib/client.js', import.meta.url)), 'utf-8')
-  // Find submit function and verify hubToken is in body
-  assert.ok(s.includes('body.hubToken'), 'submit 应在 body 里放 hubToken')
-  assert.ok(s.includes('hubToken.trim()'), 'hubToken 应 trim')
-})
 
 test('B1（变异验证）：删掉 body.hubToken 后断言红', () => {
   const s = readFileSync(fileURLToPath(new URL('../lib/client.js', import.meta.url)), 'utf-8')

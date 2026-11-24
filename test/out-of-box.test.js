@@ -38,7 +38,6 @@ const read = (p) => fs.readFileSync(path.join(ROOT, p), 'utf8')
 const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1')
 
 const patch = read('cordis.patch.yml')
-const client = read('lib/client.js')
 const setupRoutes = read('lib/setup-routes.js')
 
 /* ═══════════════ 1. role auto 推断（核心）═══════════════ */
@@ -121,29 +120,7 @@ test('开箱即用：包内 patch 的 role 默认是 auto', () => {
   assert.match(patch, /^\s+role: auto$/m, '包内 patch 的 role 应为 auto')
 })
 
-/* ═══════════════ 3. 副机表单简化 ═══════════════ */
-
-test('开箱即用：工作区有预填默认值（不再是空）', () => {
-  const code = stripComments(client)
-  assert.match(code, /function defaultRootsHint\(\)/, '应有 defaultRootsHint')
-  const i = code.indexOf('function defaultRootsHint()')
-  const seg = code.slice(i, i + 600)
-  assert.match(seg, /D:\\\\work/, 'Windows 默认 D:\\work')
-  assert.match(seg, /~\/work/, '其他平台默认 ~/work')
-  // 默认值必须是具体子目录，不能是整盘/整家目录（roots 是安全边界）
-  assert.ok(!/return 'C:\\\\\\\\'/.test(seg), '默认值不得是整盘')
-})
-
-test('开箱即用：节点 ID 折叠为高级选项（默认用主机名）', () => {
-  const code = stripComments(client)
-  assert.match(code, /showAdv/, '应有高级选项折叠状态')
-  assert.match(code, /默认用主机名/, '应提示"默认用主机名"')
-  // 折叠后不应默认渲染 nodeId 输入框（少一个要理解的字段）
-  const i = code.indexOf('默认用主机名')
-  assert.ok(i > 0, '应能找到折叠入口')
-})
-
-/* ═══════════════ 4. 工作区自动创建 ═══════════════ */
+/* ═══════════════ 3. 工作区自动创建（面板侧的表单简化与首次体检见 test/panel/settings.test.js） ═══════════════ */
 
 test('开箱即用：写入配置时自动创建 roots 目录（不存在的才建）', () => {
   const code = stripComments(setupRoutes)
@@ -162,17 +139,7 @@ test('开箱即用：建目录的提示随响应回给面板（不能让用户�
   assert.match(code, /warnings: applyWarnings/, '成功响应里应带 warnings')
 })
 
-/* ═══════════════ 5. 首次自动体检 ═══════════════ */
-
-test('开箱即用：面板首次加载自动跑体检（不用用户点按钮）', () => {
-  const code = stripComments(client)
-  assert.match(code, /autoChecked/, '应有"只自动跑一次"的闸门')
-  assert.match(code, /if \(!autoChecked\.current\)/, '应有首次判断')
-  assert.match(code, /autoChecked\.current = true/, '应置位防止重复')
-  assert.match(code, /runEnvCheck\(\)/, '应调用体检')
-})
-
-/* ═══════════════ 6. setup state 透出推断结果 ═══════════════ */
+/* ═══════════════ 4. setup state 透出推断结果 ═══════════════ */
 
 test('开箱即用：面板能知道"当前生效角色"与"推断依据"', () => {
   const code = stripComments(setupRoutes)

@@ -453,3 +453,49 @@ test('自检：artifact-service 删掉中段续流必须被检出', (t) => {
   assert.equal(code, 1, `删中段续流应被检出（exit 1），实际 exit ${code}`)
   assert.match(out, /\[67\]/, '应报出 67')
 })
+
+// ── 面板契约（16~21、43、47、73、77、80、82、85、89、90、95）：现在比对的是 src/panel/*.js 源模块，
+// 每条都对「真实删掉该行为」做一次变异，必须被检出。lib/client.js 是生成物，只有 16~18 读它。
+/** 构造「把唯一锚点替换掉」的变异函数；锚点不唯一直接失败（防注入落错位置的假绿）。 */
+function swap(anchor, replacement) {
+  return (src) => {
+    assertUniqueAnchor(src, anchor)
+    return src.replace(anchor, replacement)
+  }
+}
+const PANEL_MUTATIONS = [
+  ['[18]', 'lib/client.js', 'main 的 key 不再用 shellPanelKey', swap("name: 'main', key: shellPanelKey", "name: 'main', key: 'x'")],
+  ['[17]', 'lib/client.js', 'sidebar.panellist 的 id 不再用 shellPanelKey', swap("name: 'sidebar.panellist', id: shellPanelKey", "name: 'sidebar.panellist', id: 'x'")],
+  ['[21]', 'src/panel/styles.js', '一个宿主变量没有了回退色', swap('var(--dra-host-dark-bg,#05070d)', 'var(--dra-host-dark-bg)')],
+  ['[43]', 'src/panel/tasks.js', '任务屏的清理按钮没了', swap("'清理历史任务'", "'清理'")],
+  ['[47]', 'src/panel/tasks.js', '派发表单的模型不再进请求体', (src) => src.replaceAll('body.model = String(f.model).trim()', "body.model = ''")],
+  ['[73]', 'src/panel/tasks.js', '任务行不再区分「已跑」', swap("(active ? '已跑 ' : '耗时 ')", "'耗时 '")],
+  ['[77]', 'src/panel/settings.js', '设置抽屉的体检按钮没了', swap("'重新体检'", "'体检'")],
+  ['[80]', 'src/panel/settings.js', '工作区路径示例没了', swap('export function settingsRootsExample(platform)', 'export function settingsRootsHint(platform)')],
+  ['[82]', 'lib/hub/ui-routes.js', '共享的默认权限不再是只读', swap("body.access === 'write' ? 'write' : 'read'", "body.access === 'write' ? 'write' : 'write'")],
+  ['[89]', 'src/panel/fleet.js', '没连上过时连接尝试不再默认展开', swap("open: p.connection.everConnected !== true", 'open: false')],
+  ['[90]', 'src/panel/fleet.js', '编号步骤少了一步', swap("'在副机上粘贴', ", '')],
+  ['[90]', 'src/panel/tasks.js', '任务行没有「最近：」进度摘要', swap("'最近：' + line", 'line')],
+  ['[95]', 'src/panel/core.js', 'Fold 不再是原生 details', swap("h('details', { className: 'dra-fold'", "h('div', { className: 'dra-fold'")],
+]
+for (const [id, rel, what, mutate] of PANEL_MUTATIONS) {
+  test(`自检：${what}必须被检出（${rel}）`, (t) => {
+    const { code, out } = probe(t, mutate, rel)
+    assert.equal(code, 1, `应被检出（exit 1），实际 exit ${code}`)
+    assert.match(out, new RegExp(`DRIFT\\s+\\[${id.slice(1, -1)}\\]`), `应报出 ${id}`)
+  })
+}
+
+test('自检：[20] 两条轮询都守隐藏时干净；拿掉主机轮询的守卫必须被检出（src/panel/data.js）', (t) => {
+  // 先在副本里给副机轮询补上守卫（现状里它没有，见 README 的「页面不可见时暂停刷新」），证明检查接受「两条都守」；
+  // 再拿掉主机轮询的守卫，证明会报 20。
+  const guardWorker = (src) => swap(
+    '      api.getPath(dataStatusPath).then(',
+    "      if (kick === 0 || dataShouldPoll(typeof document !== 'undefined' ? document : undefined)) api.getPath(dataStatusPath).then(",
+  )(src)
+  const clean = probe(t, guardWorker, 'src/panel/data.js')
+  assert.equal(clean.code, 0, `两条轮询都守时应干净，实际：\n${clean.out.slice(0, 500)}`)
+  const noHub = probe(t, (src) => swap("if (dataShouldPoll(typeof document !== 'undefined' ? document : undefined)) pull()", 'if (true) pull()')(guardWorker(src)), 'src/panel/data.js')
+  assert.equal(noHub.code, 1)
+  assert.match(noHub.out, /DRIFT\s+\[20\]/)
+})

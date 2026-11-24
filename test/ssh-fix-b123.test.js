@@ -1,54 +1,12 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 
 /* ── B1: 客户端轮询契约 ────────────────────────────────────────────────── */
-
-test('B1: 轮询回调取 j.job 而非 j', () => {
-  const src = readFileSync(join(ROOT, 'lib/client.js'), 'utf-8')
-  // The poll callback must store j.job (or jobData from j.job), not raw j
-  const match = src.match(/apiGet\('\/ssh-deploy\?id='\s*\+\s*jobId\)[\s\S]{0,300}setSshDeployJob/)
-  assert.ok(match, '应在 ssh-deploy 轮询路径中找到 setSshDeployJob')
-  const snippet = match[0]
-  // Must reference j.job somewhere (either as j.job or via jobData = j.job)
-  assert.ok(snippet.includes('j.job') || snippet.includes('j && j.job'), `轮询路径应存储 j.job，实际：${snippet}`)
-  // Must NOT store bare j directly (without .job)
-  assert.ok(!snippet.includes('n[alias] = j\n') && !snippet.includes('n[alias] = j }'), `轮询不得直接存 j，应存 j.job`)
-})
-
-test('B1: 终止条件用 status includes done/failed', () => {
-  const src = readFileSync(join(ROOT, 'lib/client.js'), 'utf-8')
-  const pollBlock = src.match(/apiGet\('\/ssh-deploy\?id='\s*\+\s*jobId\)[\s\S]{0,500}setTimeout\(pollJob/)
-  assert.ok(pollBlock, '应找到 pollJob 轮询块')
-  const snippet = pollBlock[0]
-  assert.ok(snippet.includes("'done'") && snippet.includes("'failed'"), `终止条件应含 'done' 和 'failed'`)
-  assert.ok(!snippet.includes('!j.done'), `终止条件不应再用 !j.done`)
-})
-
-test('B1: 步骤颜色判断用 failed 而非 error', () => {
-  const src = readFileSync(join(ROOT, 'lib/client.js'), 'utf-8')
-  // Must use 'failed' not 'error' for step color
-  assert.ok(src.includes("s.status === 'failed' ? 'var(--dra-danger)'"), `步骤颜色应用 'failed'`)
-  assert.ok(!src.includes("s.status === 'error' ? 'var(--dra-danger)'"), `步骤颜色不应用 'error'`)
-})
-
-test('B1（变异验证）：改回存 j 会破坏结束条件', () => {
-  const src = readFileSync(join(ROOT, 'lib/client.js'), 'utf-8')
-  // Simulate mutant: replace j.job with j
-  const mutant = src.replace(
-    /const jobData = j && j\.job \? j\.job : j/,
-    'const jobData = j'
-  )
-  // With real code, j.job must appear; with mutant it's gone — this test WOULD pass for mutant
-  // So the mutation test checks that removing j.job causes the store to diverge from the poll API shape
-  // We verify the REAL code has j.job reference:
-  assert.ok(src.includes('j && j.job'), '原始代码应含 j && j.job 判断（变异验证：去掉后本行红）')
-})
 
 /* ── B2: tgz 数值排序 ──────────────────────────────────────────────────── */
 

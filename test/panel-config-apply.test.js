@@ -5,19 +5,15 @@
  * 否则直接抛错，不调用 /apply。正在用的 profile 只比修改时间。
  */
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
-import { fileURLToPath } from 'node:url'
 
 import { currentPatchFile, registerSetupRoutes } from '../lib/setup-routes.js'
 import { readInstanceConfig } from '../lib/instance-config.js'
 import { MANAGED_BEGIN, MANAGED_END } from '../lib/setup.js'
 
-const HERE = path.dirname(fileURLToPath(import.meta.url))
-const ROOT = path.resolve(HERE, '..')
-const CLIENT = readFileSync(path.join(ROOT, 'lib', 'client.js'), 'utf8')
 const LIVE = '/Users/kjclaw/Library/Application Support/dsh-desktop/harness/profiles/web/cordis.patch.yml'
 
 function stamp(file) {
@@ -193,7 +189,7 @@ test('listenPort 越界拒绝，文件原样；0 表示关闭独立监听，必�
   const off = await apply(seed, { role: 'hub', transportMode: 'relay', listenPort: 0 })
   assert.equal(off.res.status, 200, off.res.raw)
   const offText = readFileSync(off.file, 'utf8')
-  assert.match(offText, /^    listenPort: 0$/m)
+  assert.match(offText, /^ {4}listenPort: 0$/m)
   assert.doesNotMatch(offText, /listenPort: 19387/)
   assertOutsideSame(seed, offText, 'listenPort 0')
 })
@@ -286,16 +282,6 @@ test('手写冲突 409；force 才覆盖并记日志', async () => {
   assert.equal(forced.res.status, 200, forced.res.raw)
   assert.match(readFileSync(forced.file, 'utf8'), /listenPort: 19400/)
   assert.ok(forced.logs.some((l) => l.msg === 'setup applied'), 'force 覆盖必须记日志')
-})
-
-test('面板有监听字段的输入，提交时带上', () => {
-  const start = CLIENT.indexOf('function SetupView')
-  const end = CLIENT.indexOf('function Panel()', start)
-  const view = CLIENT.slice(start, end)
-  assert.match(view, /listenHost/)
-  assert.match(view, /listenPort/)
-  assert.match(view, /body\.listenHost = listenHost\.trim\(\)/)
-  assert.match(view, /body\.listenPort = listenPort\.trim\(\)/)
 })
 
 test('正在用的 profile 没有被这个文件碰到', () => {

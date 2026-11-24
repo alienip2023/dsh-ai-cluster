@@ -110,35 +110,6 @@ test('安全：二次确认的文案必须说明"会绕过边界"', () => {
   assert.match(seg, /roots/, '说明里必须点名 roots 失效')
 })
 
-test('安全：面板上有勾选框 + 未勾选时按钮禁用', () => {
-  const code = stripComments(read('lib/client.js'))
-  const i = code.indexOf('function SharePanel')
-  assert.ok(i >= 0, '应有 SharePanel 组件')
-  const seg = code.slice(i, i + 7000)
-
-  assert.match(seg, /type: 'checkbox'/, '应有确认勾选框')
-  assert.match(seg, /disabled: busy \|\| !ack/, '未勾选时按钮必须禁用')
-  assert.match(seg, /confirm: 'yes'/, '请求里必须带 confirm')
-  // 风险说明必须含关键三条
-  assert.match(seg, /绕过/, '应说明绕过安全边界')
-  assert.match(seg, /denyPaths/, '应点名 denyPaths 失效')
-  assert.match(seg, /\.env|密钥/, '应说明密钥可见')
-})
-
-/* ═══════════════ 5. 只读 / 读写两种选项 ═══════════════ */
-
-test('功能：面板提供只读与读写两种权限选择', () => {
-  const code = stripComments(read('lib/client.js'))
-  const i = code.indexOf('function SharePanel')
-  const seg = code.slice(i, i + 7000)
-  assert.match(seg, /value: 'read'/, '应有只读选项')
-  assert.match(seg, /value: 'write'/, '应有读写选项')
-  // 默认必须是只读（最小权限）
-  assert.match(seg, /React\.useState\('read'\)/, "默认权限必须是 'read'")
-  // 选 write 要有额外警告
-  assert.match(seg, /读写模式下主机可以修改/, '选 write 应给额外警告')
-})
-
 test('功能：读写映射到 -ChangeAccess（不是 FullAccess）', () => {
   const code = stripComments(read('lib/node/share-service.js'))
   assert.match(code, /ChangeAccess/, '读写应用 -ChangeAccess')

@@ -1,10 +1,11 @@
 // p3-s1：机器人名册真的从 hub 收到的 roster/report 帧到达面板。
 import assert from 'node:assert/strict'
-import fs from 'node:fs'
 import test from 'node:test'
-import vm from 'node:vm'
 import { apply } from '../../lib/index.js'
 import { PROTOCOL_VERSION } from '../../lib/protocol.js'
+import { createTeam, teamNodeRows, teamRosterProject } from '../../src/panel/team.js'
+import { dataEmptyHub } from '../../src/panel/data.js'
+import { makeCore, textOf } from '../panel/_fake.js'
 
 const NEW = '/api/ai-cluster/ui'
 const OLD = '/api/remote-agent/ui'
@@ -61,24 +62,11 @@ function hello(registry, nodeId) {
 const roster = (registry, nodeId, bots, extra = {}) =>
   registry.handleFrameFor(nodeId, { t: 'roster/report', d: { nodeId, hostname: 'host-' + nodeId, bots, ...extra } })
 
-const clientSrc = fs.readFileSync(new URL('../../lib/client.js', import.meta.url), 'utf8')
-function loadClient() {
-  let plugin = null
-  vm.runInNewContext(clientSrc, {
-    console,
-    window: { __ModuleLoader__: { load(m) {
-      plugin = m.factory(() => ({
-        createElement(type, props, ...kids) { return { type, props: props || {}, kids: kids.flat(Infinity) } },
-        useState(v) { return [v, () => {}] }, useEffect() {}, useRef(v) { return { current: v } }, useMemo(fn) { return fn() },
-      }))
-    } } },
-  })
-  return plugin
-}
-const texts = (el, out = []) => {
-  if (typeof el === 'string') out.push(el)
-  else if (el && typeof el === 'object') for (const k of el.kids || []) texts(k, out)
-  return out
+/** 把 /bots 的真实回包交给新的团队屏（假 React，只渲染一次），返回屏幕上的全部文字。 */
+function teamScreenText(body) {
+  const r = teamRosterProject(body)
+  const core = makeCore({ state: [r.kind === 'data' ? { state: 'ok', nodes: r.nodes, at: 1, error: '' } : { state: 'error', nodes: [], at: 0, error: r.reason }] })
+  return textOf(core.h(createTeam(core).Screen, { hub: { ...dataEmptyHub, loading: false }, ui: {}, go() {}, refresh() {} }))
 }
 
 test('one apply: roster frame in -> /bots on both prefixes -> client renders the bot name', async (t) => {
@@ -100,12 +88,11 @@ test('one apply: roster frame in -> /bots on both prefixes -> client renders the
     assert.equal(body.nodes[0].hostname, 'host-n1')
   }
   assert.doesNotMatch(JSON.stringify(bodies[0]), /roster-store-not-built|secret/)
-  const P = loadClient()
-  const av = P.screenAvailability(bodies[0], 200)
-  assert.equal(av.kind, 'data')
-  const shown = texts(P.rosterView(av)).join('|')
-  assert.match(shown, /Alice · coder · m-1/)
-  assert.match(shown, /host-n1 · 在线/)
+  const rows = teamNodeRows(teamRosterProject(bodies[0]).nodes, [])
+  assert.deepEqual(rows.map((r) => [r.nodeId, r.hostname, r.online]), [['n1', 'host-n1', true]])
+  assert.deepEqual(rows[0].bots.map((x) => [x.id, x.name, x.role, x.model]), [['b1', 'Alice', 'coder', 'm-1']])
+  const shown = teamScreenText(bodies[0])
+  for (const piece of ['Alice', '角色 coder', '模型 m-1', 'host-n1', '在线']) assert.ok(shown.includes(piece), piece)
 })
 
 test('second apply on the same host stays duplicate-free and does not double the roster', async (t) => {
@@ -138,8 +125,11 @@ test('offline node keeps its bots and flips online:false; unknown nodes never ap
   assert.equal(r.nodes[0].online, false)
   assert.equal(r.total, 1)
   assert.equal(r.nodes[0].bots[0].name, 'Alice')
-  const shown = texts(loadClient().rosterView(loadClient().screenAvailability(r, 200))).join('|')
+  assert.equal(teamNodeRows(teamRosterProject(r).nodes, [])[0].online, false)
+  const shown = teamScreenText(r)
   assert.match(shown, /离线/)
+  assert.match(shown, /最后一次名册/)
+  assert.match(shown, /Alice/, 'the offline node keeps its Bots on screen')
 })
 
 test('mismatched nodeId in the frame is dropped', async (t) => {
@@ -154,35 +144,15 @@ test('empty store is ok:true,total:0; unreachable store is ok:false with a code;
   hello(b.registry, 'n1')
   const empty = (await getJson(b.routes, `${NEW}/bots`)).body
   assert.deepEqual({ ok: empty.ok, total: empty.total, nodes: empty.nodes }, { ok: true, total: 0, nodes: [] })
-  const P = loadClient()
-  assert.equal(P.screenAvailability(empty, 200).kind, 'empty')
+  assert.equal(teamRosterProject(empty).kind, 'data', 'an empty roster is data (zero machines), not an error')
+  assert.deepEqual(teamRosterProject(empty).nodes, [])
+  assert.match(teamScreenText(empty), /还没有机器上报 Bot/)
   b.registry.rosterList = () => { throw new Error('boom') }
   const bad = (await getJson(b.routes, `${NEW}/bots`)).body
   assert.equal(bad.ok, false)
   assert.equal(typeof bad.code, 'string')
   assert.notEqual(bad.code, 'not-available')
-  assert.equal(P.screenAvailability(bad, 200).kind, 'error')
-  assert.equal(P.screenAvailability(bad, 500).kind, 'error')
-})
-
-test('source (p3-s1a): bots fetch is not once-only and its effect depends on the poll tick', () => {
-  const clientSrc = fs.readFileSync(new URL('../../lib/client.js', import.meta.url), 'utf8')
-  const start = clientSrc.indexOf('React.useEffect(function () {\n        function store(')
-  assert.ok(start >= 0, 'screen fetch effect must exist')
-  const end = clientSrc.indexOf('\n      }, [', start)
-  const slice = clientSrc.slice(start, end)
-  const deps = clientSrc.slice(end, clientSrc.indexOf(')', end + 8) + 1)
-  // Merged design: the bots fetch is the first 'team' branch (own in-flight ref), followed by the models fetch.
-  const botsBranch = slice.slice(slice.indexOf("activeScreen === 'team' && !botsInflight.current"), slice.indexOf("activeScreen === 'team' && !modelsInflight.current"))
-  assert.ok(botsBranch.length > 0, 'bots branch exists')
-  assert.match(botsBranch, /apiGet\('\/bots'\)/)
-  assert.doesNotMatch(botsBranch, /screenFetched/)
-  assert.doesNotMatch(clientSrc, /screenFetched\s*=\s*React\.useRef\(\{\s*bots/)
-  assert.match(deps, /\bpollTick\b/)
-  assert.match(deps, /\btick\b/)
-  // the existing poll interval drives pollTick; no second setInterval
-  assert.match(clientSrc, /load\(\)\n\s*setPollTick\(/)
-  // memory left this effect in p4 (own poll-driven effect); models went to the poll loop in p3-s3
-  assert.doesNotMatch(slice, /screenFetched/)
-  assert.doesNotMatch(slice, /screenFetched\.current\.models/)
+  assert.deepEqual(teamRosterProject(bad), { kind: 'error', reason: bad.code })
+  assert.match(teamScreenText(bad), new RegExp('读不到名册[\\s\\S]*' + bad.code), 'the error is shown with its code, not as an empty list')
+  assert.equal(teamRosterProject({ ok: false, error: 'HTTP 500', status: 500 }).kind, 'error')
 })

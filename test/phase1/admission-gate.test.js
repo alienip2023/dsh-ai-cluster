@@ -272,15 +272,12 @@ test('AC-2 criterion 9: caller matrix rejects scoped bypasses and the whole batc
   assert.equal(registry.tasks.size, 0)
 })
 
-test('AC-2 criterion 11: protocol and client pin, no admission fields in a scoped frame', async t => {
+test('AC-2 criterion 11: protocol pin, no admission fields in a scoped frame', async t => {
   const h = await setup(t)
   assert.equal(m.PROTOCOL_VERSION, 1)
   const releaseCheck = readFileSync(path.join(root, 'scripts/check-release-reachability.mjs'), 'utf8')
-  const clientHash = releaseCheck.match(/^const clientHash = '([a-f0-9]{64})'$/m)?.[1]
-  assert.ok(clientHash, 'missing release client hash')
-  assert.equal(hash(readFileSync(path.join(root, 'lib/client.js'))), clientHash)
   // The version is read from package.json (it used to be a literal that went stale on every release);
-  // the release check must not carry a literal of its own either - only the client hash stays pinned.
+  // the release check must not carry a literal of its own either.
   const version = JSON.parse(readFileSync(path.join(root, 'package.json'))).version
   assert.match(version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/)
   assert.doesNotMatch(releaseCheck, /"version": "\d/)

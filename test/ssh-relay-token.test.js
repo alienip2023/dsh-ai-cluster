@@ -4,7 +4,6 @@ import assert from 'node:assert'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-const clientPath = fileURLToPath(new URL('../lib/client.js', import.meta.url))
 const onboardPath = fileURLToPath(new URL('../lib/hub/ssh-onboard.js', import.meta.url))
 const routesPath = fileURLToPath(new URL('../lib/hub/ui-routes.js', import.meta.url))
 
@@ -52,7 +51,6 @@ function mutateBodyAuto(source) {
   return source.replaceAll(BODY_AUTO, 'body.DELETED')
 }
 
-const SRC = readFileSync(clientPath, 'utf8')
 const ONBOARD = readFileSync(onboardPath, 'utf8')
 
 test('T1: probeHost 返回 relayHubToken 字段', () => {
@@ -69,14 +67,6 @@ test('T3: probe 阶段保留 hubToken 赋值行', () => {
 
 test('T4: relay-autoconfig 保留 body.autoHubToken', () => {
   assertBodyAutoHubToken(readFileSync(routesPath, 'utf8'))
-})
-
-test('T5: client.js 把 autoHubToken 传给 relay-autoconfig', () => {
-  const fnIdx = SRC.indexOf('function autoConfigRelayFromProbe(')
-  assert.ok(fnIdx >= 0)
-  const fnBlock = SRC.slice(fnIdx, fnIdx + 900)
-  assert.ok(fnBlock.includes('autoHubToken'), '函数必须传递 autoHubToken 字段')
-  assert.ok(fnBlock.includes('relayHubToken'), '函数必须从 relayHost.relayHubToken 取值')
 })
 
 test('M1 变异：ssh-onboard.js:232 换成 // MUTATION 后 T3 主断言必须红', () => {

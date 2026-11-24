@@ -4,9 +4,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
-import vm from 'node:vm'
 import { apply } from '../../lib/index.js'
 import { PROTOCOL_VERSION } from '../../lib/protocol.js'
+import { createTeam, teamModelsProject } from '../../src/panel/team.js'
+import { dataEmptyHub } from '../../src/panel/data.js'
+import { makeCore, textOf } from '../panel/_fake.js'
 
 const NEW = '/api/ai-cluster/ui'
 const OLD = '/api/remote-agent/ui'
@@ -64,24 +66,12 @@ function hello(registry, nodeId) {
 const resource = (registry, nodeId, extra) =>
   registry.handleFrameFor(nodeId, { t: 'node/resource', d: { cpuPct: 1, ...extra } })
 
-const clientSrc = fs.readFileSync(new URL('../../lib/client.js', import.meta.url), 'utf8')
-function loadClient() {
-  let plugin = null
-  vm.runInNewContext(clientSrc, {
-    console,
-    window: { __ModuleLoader__: { load(m) {
-      plugin = m.factory(() => ({
-        createElement(type, props, ...kids) { return { type, props: props || {}, kids: kids.flat(Infinity) } },
-        useState(v) { return [v, () => {}] }, useEffect() {}, useRef(v) { return { current: v } }, useMemo(fn) { return fn() },
-      }))
-    } } },
-  })
-  return plugin
-}
-const texts = (el, out = []) => {
-  if (typeof el === 'string') out.push(el)
-  else if (el && typeof el === 'object') for (const k of el.kids || []) texts(k, out)
-  return out
+/** 把 /models 的真实回包交给新的团队屏（假 React，只渲染一次），返回屏幕上的全部文字。 */
+function teamModelsText(body) {
+  const r = teamModelsProject(body)
+  const models = r.kind === 'error' ? { state: 'error', nodes: [], error: r.reason } : { state: 'ok', nodes: r.nodes, error: '' }
+  const core = makeCore({ state: [{ state: 'ok', nodes: [], at: 1, error: '' }, models] })
+  return textOf(core.h(createTeam(core).Screen, { hub: { ...dataEmptyHub, loading: false }, ui: {}, go() {}, refresh() {} }))
 }
 
 const MODELS = {
@@ -157,42 +147,18 @@ test('client: grouped rows, 默认 marker, efforts line, null / empty / global-e
   resource(b.registry, 'n1', { models: MODELS, defaultModel: { provider: 'p', model: 'm-1' } })
   resource(b.registry, 'n2', { models: { models: [] } })
   const body = (await call(b.routes, `${NEW}/models`)).body
-  const P = loadClient()
-  const shown = texts(P.modelsView(P.modelsAvailability(body, 200))).join('|')
-  assert.match(shown, /host-n1 · 在线/)
-  assert.match(shown, /Model One \(m-1\)/)
-  assert.match(shown, /默认/)
-  assert.match(shown, /思考等级：low \/ high/)
-  assert.match(shown, /没有可用模型/)
-  assert.match(shown, /尚未上报模型/)
-  assert.doesNotMatch(shown, /所有电脑都没有可用模型/)
+  const shown = teamModelsText(body)
+  for (const piece of ['host-n1', '在线', 'Model One (m-1)', '默认', '思考等级：low / high', '没有可用模型', '尚未上报模型']) assert.ok(shown.includes(piece), piece)
+  assert.doesNotMatch(shown, /所有机器都没有可用模型/)
 
   const allNone = { ok: true, total: 0, nodes: [{ nodeId: 'a', hostname: 'a', online: true, defaultModel: null, models: [] }, { nodeId: 'b', hostname: 'b', online: true, defaultModel: null, models: null }] }
-  const none = texts(P.modelsView(P.modelsAvailability(allNone, 200))).join('|')
-  assert.match(none, /所有电脑都没有可用模型/)
+  const none = teamModelsText(allNone)
+  assert.match(none, /所有机器都没有可用模型/)
   assert.match(none, /尚未上报模型/)
-  assert.match(texts(P.modelsView(P.modelsAvailability({ ok: true, total: 0, nodes: [] }, 200))).join('|'), /还没有电脑上报模型/)
-  const err = P.modelsAvailability({ ok: false, code: 'not-available' }, 200)
+  assert.match(teamModelsText({ ok: true, total: 0, nodes: [] }), /还没有机器上报模型/)
+  const err = teamModelsProject({ ok: false, code: 'not-available' })
   assert.equal(err.kind, 'error')
-  assert.match(texts(P.modelsView(err)).join('|'), /读模型列表失败/)
-  assert.equal(P.modelsAvailability(null, 500).kind, 'error')
-})
-
-test('source: models fetch is poll-driven (pollTick dep, in-flight guard), no stale stub text', () => {
-  const start = clientSrc.indexOf('React.useEffect(function () {\n        function store(')
-  assert.ok(start >= 0)
-  const end = clientSrc.indexOf('\n      }, [', start)
-  const slice = clientSrc.slice(start, end)
-  const deps = clientSrc.slice(end, clientSrc.indexOf(')', end + 8) + 1)
-  // Merged design: the models fetch is its own 'team' branch with its own in-flight ref.
-  const branch = slice.slice(slice.indexOf("activeScreen === 'team' && !modelsInflight.current"), slice.indexOf("activeScreen === 'team' && !talentsInflight.current"))
-  assert.match(branch, /apiGet\('\/models'\)/)
-  assert.match(branch, /modelsInflight/)
-  assert.doesNotMatch(branch, /screenFetched/)
-  assert.match(deps, /\bpollTick\b/)
-  const ms = clientSrc.indexOf("screen === 'team' ? (function () {")
-  assert.ok(ms >= 0, 'the merged team render branch exists')
-  const render = clientSrc.slice(ms, clientSrc.indexOf("h('p', null, '未接入')", ms))
-  assert.doesNotMatch(render, /同步状态未采集/)
-  assert.doesNotMatch(clientSrc, /同步状态未采集/)
+  assert.match(teamModelsText({ ok: false, code: 'not-available' }), /读模型列表失败：not-available/)
+  assert.equal(teamModelsProject({ ok: false, error: 'HTTP 500', status: 500 }).kind, 'error')
+  assert.equal(teamModelsProject(null).kind, 'error')
 })

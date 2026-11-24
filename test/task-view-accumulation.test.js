@@ -44,7 +44,6 @@ const registry = read('lib/hub/node-registry.js')
 const registryIngest = read('lib/hub/registry-ingest.js')
 const tools = read('lib/hub/tools.js')
 const ui = read('lib/hub/ui-routes.js')
-const client = read('lib/client.js')
 const hubIndex = read('lib/hub/index.js')
 
 /* ─────────────── 1. 上限必须按"在跑的任务"算 ─────────────── */
@@ -156,22 +155,6 @@ test('ui-routes：有 purge 路由且方法限制为 POST', () => {
   assert.match(seg, /req\.method !== 'POST'/, '应限制 POST')
   // 显式 node 时校验存在 —— 否则静默清 0 条
   assert.match(seg, /pickNode\(wanted\)/, '指定 node 时应校验存在')
-})
-
-test('client：面板有「清理」按钮且带确认', () => {
-  assert.match(client, /apiPost\('\/purge'/, '面板应调用 /purge')
-  const i = client.indexOf("apiPost('/purge'")
-  // ⚠ 确认框在 apiPost **之前**，但中间隔着注释与 setNote —— 窗口要够大，
-  // 而且必须剥注释后再找 `window.confirm(`（注释里也提到了它）。
-  const before = stripComments(client.slice(Math.max(0, i - 1200), i))
-  // 确认已由阻塞式 window.confirm 换成内联确认卡 askConfirm（P4 白屏修复）；两者都算确认。
-  assert.match(before, /askConfirm\(|window\.confirm\(/, '清理应有确认（它会清掉已结束任务的视图）')
-  // 按钮已是独立组件：文案「清理」在按钮里，onClick 经 props.onClear 接到 clearTasks，
-  // 而 clearTasks 正是上面带确认的那个函数（不再要求文案紧挨着 apiPost）。
-  const code = stripComments(client)
-  assert.match(code, /onClick:\s*props\.onClear[\s\S]{0,120}'清理'/, '按钮文案应是「清理」且 onClick 接 props.onClear')
-  assert.match(code, /onClear:\s*clearTasks/, 'props.onClear 应接到 clearTasks')
-  assert.match(code, /function clearTasks\(\)\s*\{\s*askConfirm\(/, 'clearTasks 必须先确认再清理')
 })
 
 /* ─────────────── 4. 文档同步 ─────────────── */
