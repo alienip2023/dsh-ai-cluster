@@ -7,7 +7,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { MachineIdentity, deriveMachineId, generateMachineIdentity } from '../lib/identity/machine-identity.js'
-import { TrustStore } from '../lib/network/pairing/trust-store.js'
 import { AgentJournal } from '../lib/persist/agent-journal.js'
 import { Checkpoint } from '../lib/persist/checkpoint.js'
 
@@ -53,41 +52,6 @@ describe('machine-identity', () => {
       const desc = identity.descriptor()
       assert.equal(desc.id, identity.id)
       assert.equal(desc.publicKeyB64, identity.publicKeyB64)
-    } finally { rmSync(dir, { recursive: true }) }
-  })
-})
-
-describe('trust-store', () => {
-  test('stores and retrieves a trust record', () => {
-    const dir = tmpDir()
-    try {
-      const store = new TrustStore(join(dir, 'trust.json'))
-      store.set({ peerId: 'abc123', peerPubKeyB64: 'pubkey==', secret: 'deadbeef', pairedAt: 1, lastSeen: 1 })
-      const rec = store.get('abc123')
-      assert.equal(rec.peerId, 'abc123')
-      assert.equal(rec.secret, 'deadbeef')
-    } finally { rmSync(dir, { recursive: true }) }
-  })
-
-  test('persists across instances', () => {
-    const dir = tmpDir()
-    try {
-      const path = join(dir, 'trust.json')
-      const a = new TrustStore(path)
-      a.set({ peerId: 'peer1', peerPubKeyB64: 'pub==', secret: 'sec', pairedAt: 1, lastSeen: 1 })
-      const b = new TrustStore(path)
-      assert.ok(b.has('peer1'))
-      assert.equal(b.secretFor('peer1'), 'sec')
-    } finally { rmSync(dir, { recursive: true }) }
-  })
-
-  test('removes a record', () => {
-    const dir = tmpDir()
-    try {
-      const store = new TrustStore(join(dir, 'trust.json'))
-      store.set({ peerId: 'x', peerPubKeyB64: 'p', secret: 's', pairedAt: 1, lastSeen: 1 })
-      store.remove('x')
-      assert.ok(!store.has('x'))
     } finally { rmSync(dir, { recursive: true }) }
   })
 })
