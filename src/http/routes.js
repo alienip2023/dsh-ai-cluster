@@ -1463,17 +1463,13 @@ export function registerUiRoutes({
   // ⚠ token 披露边界（与 /config 的"只回 set 布尔"同一精神）：
   // 含 token 的完整配对码**只对本机回环请求**生成 —— 面板可能被 lanBind
   // 暴露到局域网，局域网内的另一台机器能打开面板 ≠ 应该拿到主机凭证。
-  routeBoth('/pair-info', (req, res) => {
-    if (req.method !== 'GET') return writeJson(res, 405, { error: 'method' })
-    const url = new URL(req.url, 'http://localhost')
-    const ra = String(req.socket?.remoteAddress ?? '')
-    const loopback = ra === '127.0.0.1' || ra === '::1' || ra === '::ffff:127.0.0.1'
+  // Where nodes can reach this hub and the codes to join it. includeToken only for a loopback caller:
+  // the code carries the node token (a credential). Shared by the panel route and the
+  // remote-agent:pair-info service (ds-bot's pair_node, which never asks for the token).
+  const pairInfo = ({ includeToken = false, browserPort = null } = {}) => {
     const tokenSet = typeof config.nodeToken === 'string' && config.nodeToken !== ''
-    const token = loopback && tokenSet ? config.nodeToken : ''
+    const token = includeToken && tokenSet ? config.nodeToken : ''
 
-    // 真实端口：独立监听优先；没起来则退回浏览器端口（老部署），再兜底 19387
-    const portRaw = url.searchParams.get('port') ?? ''
-    const browserPort = /^\d+$/.test(portRaw) && +portRaw > 0 && +portRaw < 65536 ? +portRaw : null
     const listenOk = listenRuntime && listenRuntime.ok === true
     const port = listenOk && Number.isFinite(listenRuntime.port) && listenRuntime.port > 0
       ? listenRuntime.port
@@ -1526,7 +1522,7 @@ export function registerUiRoutes({
             : '独立监听尚未就绪（刚启动？稍后刷新）')
     }
 
-    writeJson(res, 200, {
+    return {
       ok: true,
       port,
       portSource,
@@ -1549,8 +1545,20 @@ export function registerUiRoutes({
         : (tokenSet
           ? '当前不是从主机本机打开的面板 —— 配对码不含 token；完整版请在主机本机打开面板生成，或用 dsh-remote-setup 向导'
           : '主机未设置 nodeToken —— 无口令的端点不会暴露到网络（安全策略），副机连不上。请先生成口令。'),
-    })
+    }
+  }
+
+  routeBoth('/pair-info', (req, res) => {
+    if (req.method !== 'GET') return writeJson(res, 405, { error: 'method' })
+    const url = new URL(req.url, 'http://localhost')
+    const ra = String(req.socket?.remoteAddress ?? '')
+    const loopback = ra === '127.0.0.1' || ra === '::1' || ra === '::ffff:127.0.0.1'
+    // 真实端口：独立监听优先；没起来则退回浏览器端口（老部署），再兜底 19387
+    const portRaw = url.searchParams.get('port') ?? ''
+    const browserPort = /^\d+$/.test(portRaw) && +portRaw > 0 && +portRaw < 65536 ? +portRaw : null
+    writeJson(res, 200, pairInfo({ includeToken: loopback, browserPort }))
   })
+  try { ctx?.provide?.('remote-agent:pair-info', () => pairInfo({ includeToken: false })) } catch { /* optional service */ }
 
   // ── 诊断：面板自报（用于排查"面板 404 但路由存在"这类问题）──────
   //
