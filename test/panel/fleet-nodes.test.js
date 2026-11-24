@@ -7,7 +7,7 @@ import { generateIdentity } from '../../lib/identity.js'
 import { nodeView, summarizeTransportModes } from '../../lib/hub/views.js'
 import { makeCore, makeReact, expand, texts, findAll } from './_fake.js'
 import { dataEmptyHub, dataMergeNodes } from '../../src/panel/data.js'
-import { createFleet, fleetDiscoveryRows, fleetLastSeen, fleetLoad, fleetMachInit, fleetSpark, fleetStatus } from '../../src/panel/fleet.js'
+import { createFleet, fleetCss, fleetDiscoveryRows, fleetLastSeen, fleetLoad, fleetMachInit, fleetSpark, fleetStatus } from '../../src/panel/fleet.js'
 
 const NOW = Date.now()
 const noop = () => {}
@@ -62,9 +62,9 @@ test('card: offline, offline+stale, online+stale and online each say so; the car
   const on = card({ nodeId: 'pc', online: true })
   assert.equal(status(on), '在线')
   assert.doesNotMatch(on.text, /离线|心跳超时/)
-  assert.equal(on.article.props.className, 'fl-card online')
-  assert.equal(stale.article.props.className, 'fl-card stale')
-  assert.equal(off.article.props.className, 'fl-card offline')
+  assert.match(on.article.props.className, /^fl-card online lk-/)
+  assert.match(stale.article.props.className, /^fl-card stale lk-/)
+  assert.match(off.article.props.className, /^fl-card offline lk-off$/)
 })
 
 test('card: odd input degrades instead of throwing', () => {
@@ -353,4 +353,48 @@ test('status merge: a missing or failed node-status keeps the overview untouched
   const merged = dataMergeNodes(overview, { nodes: [{ nodeId: 'pc-a', silentMs: null }] })
   assert.equal(Object.hasOwn(merged.nodes[0], 'resource'), false)
   assert.equal(merged.nodes[0].silentMs, null)
+})
+
+/* ── 新的视觉语言：玻璃卡 + 链路光条 + 呼吸圆点 + 圆角进度槽 + 竖直时间线 ───────────────── */
+
+test('card: a link-coloured top light bar class per link category, a breathing status dot, and rounded gauges', () => {
+  const lan = card({ nodeId: 'a', hostname: 'a', online: true, transportMode: 'direct', peerHost: '192.168.1.9', resource: { cpuPct: 90, memUsedMb: 1, memTotalMb: 4 } })
+  assert.match(lan.article.props.className, /\blk-lan\b/)
+  const relay = card({ nodeId: 'b', online: true, transportMode: 'relay' })
+  assert.match(relay.article.props.className, /\blk-relay\b/)
+  const dots = findAll(lan.article, (n) => n.type === 'span' && /dra-dot/.test(n.props.className))
+  assert.equal(dots.length, 1)
+  assert.match(dots[0].props.className, /\bok\b/) // core.css makes ok dots breathe
+  assert.equal(dots[0].props['aria-label'], '在线') // the dot is labelled, never colour alone
+  assert.match(card({ nodeId: 'c', online: true, stale: true }).article.props.className, /stale/)
+  assert.match(findAll(card({ nodeId: 'c', online: true, stale: true }).article, (n) => /dra-dot/.test(n.props.className || ''))[0].props.className, /\bwarn\b/)
+  const bars = findAll(lan.article, (n) => /\bfl-bar\b/.test(n.props.className || ''))
+  assert.equal(bars.length, 2)
+  assert.ok(/\bhot\b/.test(bars[0].props.className)) // 90 % CPU is hot
+  assert.equal(bars[0].props['aria-valuenow'], 90)
+  const css = fleetCss.join('')
+  assert.match(css, /\.fl-card::before\{[^}]*var\(--fl-lk/)
+  assert.match(css, /\.fl-card\{[^}]*border-radius:var\(--dra-r-lg\)[^}]*var\(--dra-glass\)/)
+  assert.match(css, /\.fl-bar\{[^}]*border-radius:var\(--dra-r-pill\)/)
+  assert.match(css, /\.fl-bar>i\{[^}]*linear-gradient/)
+  assert.match(css, /\.fl-host\{[^}]*border-radius:var\(--dra-r-md\)/) // radius hierarchy: cards lg, inset groups md
+  assert.doesNotMatch(css, /:hover\{[^}]*translate/)
+})
+
+test('ssh timeline: the first unfinished step of a running deploy shimmers; a finished or failed job has no moving step', () => {
+  const steps = [{ name: 'connect', status: 'done', log: '' }, { name: 'probe', status: 'done', log: '' }, { name: 'upload', status: 'pending', log: '' }, { name: 'install', status: 'pending', log: '' }]
+  const base = { hosts: [{ alias: 'box', host: '192.168.1.9', port: 22, user: 'u' }], probe: { box: { ok: true, missing: [] } } }
+  const rows = (job) => {
+    const core = makeCore({ state: [Object.assign({}, fleetMachInit, base, { job: { box: job } })] })
+    const tree = expand(core.h(createFleet(core).Machines, props(mkHub([]))))
+    return findAll(tree, (n) => typeof n.props.className === 'string' && /^fl-step /.test(n.props.className)).map((r) => r.props.className)
+  }
+  const running = rows({ status: 'running', steps })
+  assert.deepEqual(running.map((c) => /\bcur\b/.test(c)), [false, false, true, false])
+  assert.match(running[2], /dra-shimmer/)
+  assert.ok(!rows({ status: 'failed', error: 'x', steps }).some((c) => /\bcur\b/.test(c)))
+  assert.ok(!rows({ status: 'done', steps: steps.map((s) => ({ ...s, status: 'done' })) }).some((c) => /\bcur\b/.test(c)))
+  const css = fleetCss.join('')
+  assert.match(css, /\.fl-timeline\{[^}]*flex-direction:column/)
+  assert.match(css, /\.fl-step::before\{[^}]*width:2px/) // the vertical rail
 })

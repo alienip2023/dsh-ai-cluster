@@ -286,8 +286,21 @@ test('focus ring helper wraps both ways', () => {
 test('module contract: css array and the three components', () => {
   const s = mount()
   assert.deepEqual(Object.keys(s).sort(), ['Drawer', 'Setup', 'WorkerView', 'css'])
-  assert.ok(Array.isArray(s.css) && s.css.every((c) => typeof c === 'string' && c.startsWith('.st-')))
-  assert.ok(!s.css.join('').includes('#'), '只用 token 变量，没有硬编码颜色')
+  assert.ok(Array.isArray(s.css) && s.css.length > 0 && s.css.every((c) => typeof c === 'string'))
+  // 命名空间：每条规则的每个选择器都带 st- 类；@keyframes 名带 st- 前缀（要么是自己的，要么显式复用 base 的 dra- 关键帧而不重定义）
+  for (const c of s.css) {
+    if (/^@keyframes /.test(c)) { assert.match(c, /^@keyframes st-/, '关键帧要带模块前缀：' + c.slice(0, 40)); continue }
+    const inner = /^@(media|supports)[^{]*\{([\s\S]*)\}$/.exec(c)
+    const rules = (inner ? inner[2] : c).match(/[^{}]+\{[^{}]*\}/g) || []
+    assert.ok(rules.length > 0, '解析不出规则：' + c.slice(0, 40))
+    for (const r of rules) for (const sel of r.slice(0, r.indexOf('{')).split(',')) assert.match(sel, /\.st-/, '选择器必须带 st- 类：' + sel.trim())
+  }
+  const all = s.css.join('')
+  assert.ok(!all.includes('#'), '只用 token 变量，没有硬编码颜色')
+  assert.ok(!/rgba?\(/.test(all), '半透明用 color-mix，不写 rgba 常量')
+  assert.ok(!/!important/.test(all), '不用 !important 去覆盖减少动效的全局规则')
+  assert.ok(!/:hover[^{]*\{[^}]*translate/.test(all), '悬停不位移')
+  assert.ok(!/@media[^{]*width/.test(all), '不用视口宽度断点')
 })
 
 test('Setup first run: role step has no cancel, next is disabled until a role is picked', () => {
@@ -805,4 +818,117 @@ test('drawer Esc closes it, but not while a confirmation dialog is open', async 
     c.listeners.keydown({ key: 'Escape' })
     assert.equal(c.closed(), 1, '确认框关掉后 Esc 关抽屉')
   })
+})
+
+/* ── 视觉改版：结构与无障碍（动画本身是纯 CSS，这里只钉结构、字形与类名） ── */
+
+const hasClass = (n, c) => typeof n.props?.className === 'string' && n.props.className.split(/\s+/).includes(c)
+
+test('step bar: a pill track, the current step is lit and announced, finished steps carry a check glyph in text', () => {
+  const s = mount({ setup: { step: 'connect', role: 'hub' } })
+  const el = s.Setup({ switching: false, setup: null, ui: ui(), onDone: noop, onCancel: noop })
+  const track = findByClass(el, 'st-steps')[0]
+  assert.equal(track.type, 'ol')
+  assert.equal(track.props['aria-label'], '配置步骤')
+  const steps = findByClass(el, 'st-step')
+  assert.equal(steps.length, 3)
+  assert.deepEqual(steps.map((n) => [hasClass(n, 'on'), hasClass(n, 'done'), n.props['aria-current']]), [[false, true, undefined], [true, false, 'step'], [false, false, undefined]])
+  assert.equal(texts(steps[0]).join(''), '✓步骤 1：选角色', '走过的步骤：对勾 + 文字，不只靠颜色')
+  assert.equal(texts(steps[1]).join(''), '2步骤 2：填连接信息')
+  const done = mount({ setup: { step: 'done', role: 'hub', written: { role: 'hub' } } }).Setup({ switching: false, setup: null, ui: ui(), onDone: noop, onCancel: noop })
+  assert.deepEqual(findByClass(done, 'st-step').map((n) => hasClass(n, 'done')), [true, true, true])
+  assert.equal(findAll(expand(done), (n) => n.props && n.props['aria-current'] === 'step').length, 0)
+})
+
+test('role tiles: three big selectable tiles; the selected one has the ring class AND a check glyph, others have neither', () => {
+  const s = mount({ setup: { step: 'role', role: 'worker' } })
+  const el = s.Setup({ switching: false, setup: null, ui: ui(), onDone: noop, onCancel: noop })
+  const tiles = findByClass(el, 'st-role')
+  assert.equal(tiles.length, 3)
+  assert.ok(tiles.every((t) => t.type === 'label'), '整块可点，且是真 <label>')
+  assert.deepEqual(tiles.map((t) => hasClass(t, 'on')), [false, true, false])
+  assert.deepEqual(tiles.map((t) => findByClass(t, 'st-check').length), [0, 1, 0], '选中态有对勾字形')
+  assert.equal(texts(findByClass(tiles[1], 'st-check')[0]).join(''), '✓')
+  assert.ok(findByClass(tiles[1], 'st-check')[0].props.className.includes('dra-pop'), '对勾弹出')
+  assert.deepEqual(tiles.map((t) => findAll(t, (n) => n.type === 'input')[0].props.checked), [false, true, false], '语义上仍是单选按钮')
+  assert.equal(findByClass(el, 'st-role-glyph').length, 3)
+  assert.ok(findByClass(el, 'st-role-glyph').every((g) => g.props['aria-hidden'] === 'true'))
+})
+
+test('connection fields are grouped into rounded sections, and the pair box is its own inset group', () => {
+  const s = mount({ setup: { step: 'connect', role: 'worker' } })
+  const el = s.Setup({ switching: false, setup: null, ui: ui(), onDone: noop, onCancel: noop })
+  const groups = findByClass(el, 'st-group')
+  assert.ok(groups.length >= 3, '配对盒 + 连接方式 + 地址/口令，各是一个分组')
+  assert.ok(findByClass(el, 'st-pair').every((g) => hasClass(g, 'st-group')))
+  assert.ok(groups.some((g) => /连接方式/.test(texts(g).join(''))))
+  assert.ok(groups.some((g) => findAll(g, (n) => n.type === 'input' && n.props.type === 'password').length === 1))
+})
+
+test('review and worker facts are iOS-style grouped lists: label left (dt), value right (dd), one row per fact', () => {
+  const form = Object.assign(settingsEmptyForm(), { relayUrl: 'ws://10.0.0.5:8890/relay', roots: '/a\n/b' })
+  const rv = mount({ setup: { step: 'review', role: 'worker', form } }).Setup({ switching: false, setup: null, ui: ui(), onDone: noop, onCancel: noop })
+  const list = findByClass(rv, 'st-list')[0]
+  assert.equal(list.type, 'dl')
+  assert.ok(hasClass(list, 'st-group'))
+  const rows = findByClass(list, 'st-row')
+  assert.equal(rows.length, settingsReviewRows('worker', form, {}).length)
+  assert.ok(rows.every((r) => r.kids.length === 2 && r.kids[0].type === 'dt' && r.kids[1].type === 'dd'))
+  assert.ok(hasClass(findByClass(rv, 'st-summary')[0], 'st-summary'), '确认页是抬高的玻璃摘要')
+  const w = mount().WorkerView({ ui: ui(), worker: { loading: false, error: '', status: { nodeId: 'w1', online: true, tasks: { total: 7, running: 1, queued: 2 } } }, onSwitchRole: noop, refresh: noop })
+  assert.equal(findByClass(w, 'st-counters').length, 1, '大号数字计数器')
+  assert.ok(findByClass(w, 'st-counters')[0].props.className.includes('dra-statbar'))
+  assert.ok(findByClass(w, 'st-sec').length >= 1)
+})
+
+test('done step: a one-time seal with a check, hidden from assistive tech (the heading and banner say it in words)', () => {
+  const el = mount({ setup: { step: 'done', role: 'hub', written: { role: 'hub', file: '/p/f.yml' } } }).Setup({ switching: false, setup: null, ui: ui(), onDone: noop, onCancel: noop })
+  const seal = findByClass(el, 'st-seal')[0]
+  assert.equal(seal.props['aria-hidden'], 'true')
+  assert.equal(texts(seal).join(''), '✓')
+  assert.match(textOf(el), /配置已写入/)
+  assert.match(textOf(el), /重启 DSH 生效/)
+})
+
+test('environment results: one list, each row has a glyph AND a word (never colour alone), rows animate in via CSS only', () => {
+  const data = { failed: 2, items: [{ id: 'a', label: 'A', ok: true }, { id: 'b', label: 'B', ok: false, severity: 'error', fix: 'do x' }, { id: 'c', label: 'C', ok: false, severity: 'warn' }] }
+  const el = mount({ env: { phase: 'done', data } }).Drawer({ role: 'hub', hub: { loading: false, nodes: [], caps: null, link: { available: false, total: 0, nodes: [] } }, worker: { loading: false, error: '', status: null }, ui: ui(), refresh: noop, plan: { hub: true, worker: false, both: false, view: 'hub' }, onClose: noop, onSwitchRole: noop })
+  const list = findAll(expand(el), (n) => n.type === 'ul' && hasClass(n, 'st-stagger') && findByClass(n, 'st-state').length > 0)[0]
+  assert.ok(list && hasClass(list, 'st-group'))
+  const states = findByClass(list, 'st-state')
+  assert.deepEqual(states.map((n) => texts(n).join('')), ['✓通过', '✕未通过', '▲注意'])
+  assert.deepEqual(states.map((n) => findByClass(n, 'st-glyph')[0].props['aria-hidden']), ['true', 'true', 'true'], '字形是装饰，词本身可读')
+  assert.ok(states.every((n) => findByClass(n, 'st-glyph')[0].props.className.includes('dra-pop')))
+  assert.ok(findAll(list, (n) => n.props && n.props.style).length === 0, '错峰进入是纯 CSS（nth-child + animation-delay），不在 JS 里算延迟')
+})
+
+test('fix preview is a distinct inset panel that pops in; no preview, no panel', () => {
+  const preview = settingsFixPreview({ ok: true, plan: { fixable: [{ id: 'role', label: 'role', change: '补上 role', note: '' }], skipped: [{ id: 'port', label: '端口', reason: '需人判断' }], file: '/p/f.yml', backups: [] } })
+  const mk = (env) => mount({ env }).Drawer({ role: 'hub', hub: { loading: false, nodes: [], caps: null, link: { available: false, total: 0, nodes: [] } }, worker: { loading: false, error: '', status: null }, ui: ui(), refresh: noop, plan: { hub: true, worker: false, both: false, view: 'hub' }, onClose: noop, onSwitchRole: noop })
+  const panel = findByClass(mk({ phase: 'done', data: { failed: 1, items: [] }, preview }), 'st-preview')[0]
+  assert.ok(panel && panel.props.className.includes('dra-pop'))
+  assert.match(texts(panel).join(''), /修复预览：将修改 \/p\/f\.yml/)
+  assert.equal(findByClass(mk({ phase: 'done', data: { failed: 0, items: [] } }), 'st-preview').length, 0)
+})
+
+test('reliable-link backlog: one row per node with an amber parked dot (labelled), the wait time in words, and a count chip', () => {
+  const link = { available: true, total: 3, nodes: [{ nodeId: 'n1', pending: 3, oldestMs: 61000, maxTries: 2, types: { 'work/x': 3 }, online: false }] }
+  const el = mount({ editor: { phase: 'ready', base: { current: {} }, form: settingsEmptyForm() } }).Drawer({ role: 'hub', hub: { loading: false, nodes: [{ nodeId: 'n1', hostname: 'box' }], caps: null, link }, worker: { loading: false, error: '', status: null }, ui: ui(), refresh: noop, plan: { hub: true, worker: false, both: false, view: 'hub' }, onClose: noop, onSwitchRole: noop })
+  const rows = findByClass(el, 'st-node')
+  assert.equal(rows.length, 1)
+  const dot = findByClass(rows[0], 'st-park')[0]
+  assert.ok(hasClass(dot, 'dra-dot') && hasClass(dot, 'warn'))
+  assert.equal(dot.props.role, 'img')
+  assert.equal(dot.props['aria-label'], '消息在等对方就绪')
+  assert.match(texts(rows[0]).join(''), /待送达 3 条 · 最久等了 1m1s · 已重试 2 次/)
+  const chip = findByClass(rows[0], 'st-count')[0]
+  assert.equal(texts(chip).join(''), '3')
+  assert.equal(chip.props['aria-hidden'], 'true', '数字已经在文字里，芯片只是视觉强调')
+})
+
+test('drawer: header is the sticky glass title bar and every section is an inset-group section', () => {
+  const el = mount({ editor: { phase: 'ready', base: { current: hubSetup.current }, form: settingsFormFromCurrent(hubSetup.current) } }).Drawer({ role: 'hub', hub: { loading: false, nodes: [], caps: null, link: { available: false, total: 0, nodes: [] } }, worker: { loading: false, error: '', status: null }, ui: ui(), refresh: noop, plan: { hub: true, worker: false, both: false, view: 'hub' }, onClose: noop, onSwitchRole: noop })
+  assert.equal(findByClass(el, 'st-drawer-head')[0].type, 'header')
+  const secs = findByClass(el, 'st-sec')
+  assert.deepEqual(secs.map((n) => n.props['aria-label']), ['角色', '连接配置', '环境体检', '通道与审计'])
 })

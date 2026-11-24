@@ -48,7 +48,7 @@ export function createShell(core, data, mods, css) {
   const { React, h, Banner } = core
 
   function Root(p) {
-    return h('div', { className: 'dra-root' + (p.theme === 'light' ? ' dra-light' : ''), 'data-theme': p.theme }, p.children)
+    return h('div', { className: 'dra-root' + (p.theme === 'light' ? ' dra-light' : ''), 'data-theme': p.theme }, h('i', { className: 'dra-aurora', 'aria-hidden': 'true' }), p.children)
   }
 
   function Dialog(p) {

@@ -543,13 +543,25 @@ export function fleetDiscoveryRows(discovery, nodes, show) {
 
 /* ── 拓扑：节点视图模型 + 确定性布局 ───────────────────────────────── */
 
+/** 链路类别（决定光的颜色）：中继 / 隧道 / 局域网直连 / 直连 / 未知；离线机器没有活的链路，单独一类。 */
+export function fleetLinkClass(n) {
+  if (fleetStatus(n) === 'offline') return 'off'
+  const tr = fleetTransport(n)
+  if (tr === 'relay') return 'relay'
+  if (tr === 'unknown') return 'unknown'
+  const c = n && n.connectivity && typeof n.connectivity === 'object' ? n.connectivity : null
+  if (c && c.tunnelState === 'ready' && c.tunnel && typeof c.tunnel === 'object') return 'tunnel'
+  return fleetLinkKind(n) === '局域网直连' ? 'lan' : 'direct'
+}
+
 export function fleetNodeModel(n, act, staleCount) {
   const status = fleetStatus(n)
   const a = act || { running: 0, queued: 0, done: 0, failed: 0, total: 0 }
   const tr = fleetTransport(n)
+  const backlog = fleetBacklog(n)
   return {
-    id: String(n.nodeId || ''), name: fleetName(n), status, transport: status === 'offline' ? 'unknown' : tr,
-    rttText: fleetRttText(n), act: a, actText: fleetActivityText(a), backlog: fleetBacklog(n),
+    id: String(n.nodeId || ''), name: fleetName(n), status, transport: status === 'offline' ? 'unknown' : tr, link: fleetLinkClass(n),
+    rttText: fleetRttText(n), act: a, actText: fleetActivityText(a), backlog, version: fleetVersion(n),
     health: status === 'offline' ? '' : fleetHealth(n, staleCount),
     /* 心跳超时的机器按断开画（边变虚、不再流动），但文字仍保留它的延迟。 */
     edgeState: status !== 'online' ? 'offline' : a.running ? 'running' : a.queued ? 'queued' : 'idle',
@@ -559,7 +571,20 @@ export function fleetNodeModel(n, act, staleCount) {
 
 const fleetR1 = (v) => Math.round(v * 10) / 10
 
-/** 纯函数：中心是主控，机器按 id 排序均匀排在椭圆上（超过 8 台再排外圈）。同输入同输出，无迭代、无随机。 */
+/** 二次贝塞尔上 t 处的点（用来摆停靠的光点、标签）。 */
+export function fleetPointOn(e, t) {
+  const q = 1 - t
+  return { x: fleetR1(q * q * e.x1 + 2 * q * t * e.cx + t * t * e.x2), y: fleetR1(q * q * e.y1 + 2 * q * t * e.cy + t * t * e.y2) }
+}
+
+/** 节点数 → 画面档位：full（全部细节）/ lite（不做浮动与脉冲）/ dense（再省标签）。同时给出飞行光点的上限。 */
+export const fleetFlyCap = 12
+export const fleetLinkKinds = [['lan', '局域网'], ['direct', '直连'], ['relay', '中继'], ['tunnel', '隧道'], ['unknown', '未知']]
+export function fleetDensity(count) {
+  return { tier: count > 16 ? 'dense' : count > 8 ? 'lite' : 'full', float: count <= 8, pulse: count <= 12, labels: count <= 16, edgeLabels: count <= 8 }
+}
+
+/** 纯函数：中心是主控，机器按 id 排序均匀排在椭圆上（超过 8 台再排外圈）；主控 → 机器是一条弯曲的贝塞尔。同输入同输出，无迭代、无随机。 */
 export function fleetLayout(input) {
   const W = 640
   const models = input && Array.isArray(input.models) ? input.models.slice().sort((a, b) => fleetCmp(a.id, b.id)) : []
@@ -573,14 +598,45 @@ export function fleetLayout(input) {
   }
   const nodes = models.map((m, i) => {
     const p = i < inner ? ring(i, inner, outer > 0 ? 160 : 210, outer > 0 ? 80 : 105, 0) : ring(i - inner, outer, 250, 170, Math.PI / Math.max(outer, 1))
-    return Object.assign({ id: m.id, model: m }, p)
+    return Object.assign({ id: m.id, model: m, index: i }, p)
   })
-  const edges = nodes.map((p) => ({
-    id: 'hub>' + p.id, to: p.id, x1: hub.x, y1: hub.y, x2: p.x, y2: p.y, state: p.model.edgeState, transport: p.model.transport,
-    label: p.model.edgeLabel, lx: fleetR1((hub.x + p.x) / 2), ly: fleetR1((hub.y + p.y) / 2),
-  }))
+  const edges = nodes.map((p) => {
+    const dx = p.x - hub.x
+    const dy = p.y - hub.y
+    const len = Math.hypot(dx, dy) || 1
+    const bend = len * 0.14 * (p.index % 2 === 0 ? 1 : -1) // 交替向两侧弯，相邻的线不会叠在一起
+    const e = { id: 'hub>' + p.id, to: p.id, x1: hub.x, y1: hub.y, x2: p.x, y2: p.y, cx: fleetR1(hub.x + dx / 2 - dy / len * bend), cy: fleetR1(hub.y + dy / 2 + dx / len * bend),
+      state: p.model.edgeState, transport: p.model.transport, link: p.model.link, label: p.model.edgeLabel }
+    e.d = 'M' + e.x1 + ' ' + e.y1 + ' Q' + e.cx + ' ' + e.cy + ' ' + e.x2 + ' ' + e.y2
+    const mid = fleetPointOn(e, 0.5)
+    e.lx = mid.x
+    e.ly = mid.y
+    return e
+  })
   const relay = input && input.relayDown === true ? { x: W - 50, y: 34, w: 76, h: 26 } : null
   return { width: W, height: H, hub, nodes, edges, relay }
+}
+
+/** 确定性的星点：同样的画布永远是同一片星空。返回 { dots: 单个 path 的 d（静态），twinkle: 少数会闪的 }。 */
+export function fleetStars(width, height, count) {
+  let seed = 2166136261
+  const next = () => { seed = Math.imul(seed ^ (seed >>> 15), 2246822507) >>> 0; seed = (seed + 0x6d2b79f5) >>> 0; return seed / 4294967296 }
+  const dots = []
+  const twinkle = []
+  for (let i = 0; i < count; i += 1) {
+    const x = fleetR1(8 + next() * (width - 16))
+    const y = fleetR1(8 + next() * (height - 16))
+    if (i % 8 === 0) twinkle.push({ x, y, delay: fleetR1(next() * 6) })
+    else dots.push('M' + x + ' ' + y + 'h.01')
+  }
+  return { dots: dots.join(''), twinkle }
+}
+
+/** 玻璃胶囊的宽度：西文约 6.4px，中日韩 11px，再加左右内边距。 */
+export function fleetCapsuleWidth(text) {
+  let w = 14
+  for (const ch of String(text == null ? '' : text)) w += ch.charCodeAt(0) > 255 ? 11 : 6.4
+  return fleetR1(w)
 }
 
 /* ── 机器屏：store、反应器、异步流程（可注入 io 测试） ─────────────── */
@@ -781,63 +837,141 @@ export function fleetMachFlow(io) {
 /* ── 样式（类名前缀 fl-，只用 styles.js 的 token） ─────────────────── */
 
 export const fleetCss = [
-  '.fl-privacy{display:flex;align-items:center;gap:8px 12px;flex-wrap:wrap}',
-  '.fl-topo{container-type:inline-size}',
-  '.fl-svg{width:100%;height:auto;max-height:480px;display:block}',
-  '@container (max-width:520px){.fl-svg,.fl-legend{display:none}}',
-  '.fl-edge{fill:none;stroke:var(--dra-text-dim);stroke-width:1.5}',
-  '.fl-edge.tr-relay{stroke-dasharray:6 4}.fl-edge.tr-unknown{stroke-dasharray:1 5}',
-  '.fl-edge.st-offline{stroke:var(--dra-text-faint);stroke-dasharray:2 6}',
-  '.fl-edge.st-queued{stroke:var(--dra-warn);stroke-dasharray:8 4}',
-  '.fl-edge.st-running{stroke:var(--dra-accent);stroke-width:2.5;stroke-dasharray:8 6;animation:fl-flow 1s linear infinite}',
-  '.fl-edge.down{stroke:var(--dra-danger);stroke-dasharray:3 4}',
-  '.fl-peer{stroke:var(--dra-mesh);stroke-width:1;stroke-dasharray:1 3;opacity:.9}',
-  '@keyframes fl-flow{to{stroke-dashoffset:-14}}',
-  '@media (prefers-reduced-motion:reduce){.fl-edge.st-running{animation:none!important}}',
-  '.fl-elabel{font-size:10px;fill:var(--dra-text-dim);text-anchor:middle;paint-order:stroke;stroke:var(--dra-surface-1);stroke-width:3px}',
-  '.fl-hub{fill:color-mix(in srgb,var(--dra-accent) 16%,var(--dra-surface-2));stroke:var(--dra-accent);stroke-width:2}',
-  '.fl-hubtext{font-size:12px;font-weight:700;fill:var(--dra-accent);text-anchor:middle}',
-  '.fl-relaybox{fill:var(--dra-surface-2);stroke:var(--dra-danger);stroke-width:1.5;stroke-dasharray:4 3}',
-  '.fl-node{cursor:pointer}',
-  '.fl-dot{fill:var(--dra-surface-3);stroke:var(--dra-text-dim);stroke-width:2}',
-  '.fl-node.online .fl-dot{stroke:var(--dra-ok)}.fl-node.stale .fl-dot{stroke:var(--dra-warn)}.fl-node.offline .fl-dot{stroke:var(--dra-text-faint);stroke-dasharray:3 3}',
-  '.fl-node.pinned .fl-dot{fill:color-mix(in srgb,var(--dra-accent) 28%,var(--dra-surface-3));stroke:var(--dra-accent);stroke-width:3}',
-  '.fl-node:focus-visible .fl-dot{stroke:var(--dra-accent);stroke-width:3}',
+  /* ── 链路类别配色：任何元素加 lk-* 就得到 --fl-lk（线、光点、卡片光条、图例共用） ── */
+  '.lk-lan{--fl-lk:var(--dra-link-lan)}.lk-direct{--fl-lk:var(--dra-link-direct)}.lk-relay{--fl-lk:var(--dra-link-relay)}.lk-tunnel{--fl-lk:var(--dra-link-tunnel)}.lk-unknown{--fl-lk:var(--dra-text-dim)}.lk-off{--fl-lk:var(--dra-text-faint)}',
+  '.fl-privacy{display:flex;align-items:center;gap:8px 14px;flex-wrap:wrap;padding:8px 14px;border:1px solid var(--dra-border);border-radius:var(--dra-r-pill);background:var(--dra-sheen),var(--dra-glass);width:max-content;max-width:100%}',
+
+  /* ── 拓扑：舞台 ── */
+  '.fl-topo{container-type:inline-size;display:flex;flex-direction:column;gap:8px}',
+  '.fl-stage{position:relative;overflow:hidden;border:1px solid var(--dra-border);border-radius:var(--dra-r-lg);box-shadow:var(--dra-hl),inset 0 0 70px -24px color-mix(in srgb,var(--dra-accent-2) 55%,transparent);background:radial-gradient(60% 75% at 50% 50%,color-mix(in srgb,var(--dra-accent-2) 24%,transparent),transparent 72%),radial-gradient(42% 52% at 12% 18%,color-mix(in srgb,var(--dra-accent) 16%,transparent),transparent 70%),radial-gradient(42% 52% at 90% 88%,color-mix(in srgb,var(--dra-accent-3) 15%,transparent),transparent 70%),var(--dra-bg)}',
+  '.dra-light .fl-stage{box-shadow:var(--dra-hl),inset 0 0 70px -30px color-mix(in srgb,var(--dra-accent-2) 40%,transparent);background:radial-gradient(46% 60% at 18% 22%,color-mix(in srgb,var(--dra-accent) 22%,transparent),transparent 70%),radial-gradient(44% 58% at 84% 20%,color-mix(in srgb,var(--dra-accent-3) 18%,transparent),transparent 70%),radial-gradient(50% 60% at 62% 90%,color-mix(in srgb,var(--dra-accent-2) 20%,transparent),transparent 70%),var(--dra-sheen),var(--dra-surface-1)}',
+  '.fl-svg{width:100%;height:auto;max-height:520px;display:block}',
+  '@container (max-width:520px){.fl-stage,.fl-legend{display:none}}',
+  '.fl-stars{fill:none;stroke:var(--dra-text);stroke-width:2.2;stroke-linecap:round;opacity:.5}',
+  '.dra-light .fl-stars{stroke:var(--dra-accent);opacity:.22}',
+  '.fl-twinkle{fill:var(--dra-text);opacity:.85;animation:fl-twinkle 4.6s ease-in-out infinite}',
+  '.dra-light .fl-twinkle{fill:var(--dra-accent-2)}',
+  '@keyframes fl-twinkle{0%,100%{opacity:.85}50%{opacity:.15}}',
+  '.fl-sa{stop-color:var(--dra-text)}.dra-light .fl-sa{stop-color:var(--dra-surface-1)}',
+  '.fl-ca{stop-color:var(--dra-accent)}.fl-cb{stop-color:var(--dra-accent-2)}',
+
+  /* ── 主控：球体 + 呼吸光晕 + 三圈轨道 + 雷达扫描 ── */
+  '.fl-hub{stroke:color-mix(in srgb,var(--dra-accent) 70%,transparent);stroke-width:1.5}',
+  '.fl-shine{pointer-events:none}',
+  '.fl-hubtext{font-size:12px;font-weight:700;fill:var(--dra-on-primary);text-anchor:middle;letter-spacing:.04em}',
+  '.fl-halo{animation:fl-halo 4.2s ease-in-out infinite}',
+  '@keyframes fl-halo{0%,100%{transform:scale(.9);opacity:.7}50%{transform:scale(1.14);opacity:1}}',
+  '.fl-orbit{fill:none;stroke-linecap:round}',
+  '.fl-orbit.o1{stroke:var(--dra-accent);stroke-width:1.4;stroke-dasharray:46 24 8 24;opacity:.85;animation:fl-spin 22s linear infinite}',
+  '.fl-orbit.o2{stroke:var(--dra-accent-2);stroke-width:1;stroke-dasharray:3 7;opacity:.7;animation:fl-spin-r 36s linear infinite}',
+  '.fl-orbit.o3{stroke:var(--dra-accent-3);stroke-width:1.2;stroke-dasharray:70 400;opacity:.75;animation:fl-spin 54s linear infinite}',
+  '.fl-sweep{animation:fl-spin 9s linear infinite;pointer-events:none}',
+  '.fl-sweep-edge{stroke:var(--dra-accent);stroke-width:1.2;opacity:.55}',
+  '@keyframes fl-spin{to{transform:rotate(360deg)}}@keyframes fl-spin-r{to{transform:rotate(-360deg)}}',
+
+  /* ── 链路：贝塞尔底线 + 流动的光 ── */
+  '.fl-edge{fill:none;stroke:var(--fl-lk,var(--dra-text-dim));stroke-width:1.6;stroke-linecap:round;opacity:.5}',
+  '.fl-edge.tr-relay{stroke-dasharray:7 5}.fl-edge.tr-unknown{stroke-dasharray:1 6}',
+  '.fl-edge.st-offline{stroke:var(--dra-text-faint);stroke-dasharray:2 8;opacity:.55}',
+  '.fl-edge.st-offline.stale{stroke:var(--dra-warn);stroke-dasharray:10 9;opacity:.9;animation:fl-flicker 1.4s steps(1) 1}',
+  '.fl-edge.st-running{stroke-width:2.4;opacity:.85}',
+  '.fl-edge.down{stroke:var(--dra-danger);stroke-dasharray:3 6;opacity:.9;animation:fl-flicker 2.8s steps(1) infinite}',
+  '@keyframes fl-flicker{0%,100%{opacity:.9}10%{opacity:.2}20%{opacity:.9}34%{opacity:.3}46%{opacity:.9}}',
+  '.fl-flow{fill:none;stroke:var(--fl-lk,var(--dra-accent));stroke-width:2.6;stroke-linecap:round;stroke-dasharray:1.5 17;opacity:.95;animation:fl-flow 1.7s linear infinite}',
+  '.fl-flow.fast{stroke-width:3.2;stroke-dasharray:7 12;animation-duration:.8s;filter:drop-shadow(0 0 3px var(--fl-lk,var(--dra-accent)))}',
+  '@keyframes fl-flow{to{stroke-dashoffset:-37}}',
+  '.fl-elabel{font-size:10px;fill:var(--dra-text-dim);text-anchor:middle;paint-order:stroke;stroke:var(--dra-surface-1);stroke-width:3px;stroke-linejoin:round}',
+  '.fl-peer{stroke:var(--dra-mesh);stroke-width:1.2;stroke-dasharray:1 4;stroke-linecap:round;opacity:.95}',
+
+  /* ── 光点：运行中沿路径飞行（CSS offset-path），排队停在节点前，积压是琥珀色并带数字 ── */
+  '.fl-fly{fill:var(--fl-lk,var(--dra-accent));offset-rotate:0deg;offset-distance:0%;animation:fl-fly 2.6s linear infinite;filter:drop-shadow(0 0 5px var(--fl-lk,var(--dra-accent)))}',
+  '.fl-fly.b{opacity:.8}',
+  '@keyframes fl-fly{0%{offset-distance:0%;opacity:0}8%{opacity:1}92%{opacity:1}100%{offset-distance:100%;opacity:0}}',
+  '@media (prefers-reduced-motion:reduce){.fl-fly{offset-distance:58%}.fl-fly.b{offset-distance:24%}}',
+  '.fl-park{stroke-width:1}',
+  '.fl-park.q{fill:var(--dra-accent-2);stroke:color-mix(in srgb,var(--dra-accent-2) 50%,transparent);animation:fl-park 2.2s ease-in-out infinite}',
+  '.fl-park.bl{fill:var(--dra-warn);stroke:color-mix(in srgb,var(--dra-warn) 55%,transparent);animation:fl-park 2.6s ease-in-out infinite}',
+  '@keyframes fl-park{0%,100%{opacity:.65}50%{opacity:1}}',
+  '.fl-blcount{font-size:10px;font-weight:700;fill:var(--dra-warn)}',
+  '.fl-relaybox{fill:color-mix(in srgb,var(--dra-danger) 14%,var(--dra-surface-2));stroke:var(--dra-danger);stroke-width:1.5;stroke-dasharray:4 3}',
+
+  /* ── 节点：玻璃球 + 轨道环 + 脉冲；离线灰暗虚线，心跳超时环断开 ── */
+  '.fl-node{cursor:pointer;outline:none;transition:transform .3s var(--dra-spring),opacity .3s var(--dra-ease)}',
+  '.fl-float.bob{animation:fl-float 5.4s ease-in-out infinite}',
+  '@keyframes fl-float{0%,100%{transform:translate(0,0)}50%{transform:translate(0,-3px)}}',
+  '.fl-ring{fill:none;stroke:var(--fl-lk,var(--dra-text-dim));stroke-width:1;opacity:.4;transition:opacity .3s,stroke-width .3s}',
+  '.fl-node.offline .fl-ring{stroke-dasharray:2 5;opacity:.35}',
+  '.fl-node.stale .fl-ring{stroke:var(--dra-warn);stroke-dasharray:15 6 3 6;opacity:.9;animation:fl-flicker 1.4s steps(1) 1}',
+  '.fl-pulse{fill:none;stroke:var(--fl-lk,var(--dra-ok));stroke-width:1.5;opacity:.3;animation:fl-pulse 3.6s ease-out infinite}',
+  '@keyframes fl-pulse{0%{transform:scale(1);opacity:.7}100%{transform:scale(1.9);opacity:0}}',
+  '.fl-dot{fill:color-mix(in srgb,var(--dra-ok) 26%,var(--dra-surface-2));stroke:var(--dra-ok);stroke-width:1.8}',
+  '.fl-node.stale .fl-dot{fill:color-mix(in srgb,var(--dra-warn) 24%,var(--dra-surface-2));stroke:var(--dra-warn)}',
+  '.fl-node.offline .fl-dot{fill:color-mix(in srgb,var(--dra-text-faint) 24%,var(--dra-surface-2));stroke:var(--dra-text-faint);stroke-dasharray:3 3}',
+  '.fl-node.offline .fl-float{opacity:.6}',
   '.fl-glyph{font-size:12px;font-weight:700;fill:var(--dra-text);text-anchor:middle}',
-  '.fl-nname{font-size:11px;fill:var(--dra-text);text-anchor:middle}.fl-nsub{font-size:10px;fill:var(--dra-text-dim);text-anchor:middle}',
-  '.fl-table-wrap{overflow-x:auto}',
-  '.fl-table{width:100%;border-collapse:collapse;font-size:12px}',
-  '.fl-table th,.fl-table td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--dra-border);white-space:nowrap;vertical-align:top}',
-  '.fl-table th{color:var(--dra-text-dim);font-weight:600}.fl-table tr.pinned td{background:color-mix(in srgb,var(--dra-accent) 10%,transparent)}',
+  '.fl-cap{fill:color-mix(in srgb,var(--dra-surface-2) 72%,transparent);stroke:var(--dra-border)}',
+  '.fl-cap.old{stroke:var(--dra-warn);fill:color-mix(in srgb,var(--dra-warn) 16%,var(--dra-surface-2))}',
+  '.fl-nname{font-size:10.5px;fill:var(--dra-text);text-anchor:middle}.fl-nname.old{fill:var(--dra-warn);font-weight:600}.fl-nsub{font-size:10px;fill:var(--dra-text-dim);text-anchor:middle}',
+  /* 悬停 / 聚焦 / 固定：放大一档、亮起轨道环，其余压暗；固定时有旋转的瞄准环 */
+  '.fl-node.hot{transform:scale(1.14)}',
+  '.fl-node.hot .fl-ring,.fl-node.pinned .fl-ring{opacity:1;stroke:var(--dra-accent);stroke-width:1.8;stroke-dasharray:6 4;animation:fl-spin 10s linear infinite;transform-origin:center;transform-box:fill-box}',
+  '.fl-node:focus-visible .fl-ring{stroke:var(--dra-accent);stroke-width:2.4;opacity:1}',
+  '.fl-focus .fl-node:not(.hot),.fl-focus .fl-link:not(.hot),.fl-focus .fl-packets:not(.hot){opacity:.45}',
+  '.fl-reticle{fill:none;stroke:var(--dra-accent);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;animation:fl-spin 8s linear infinite;pointer-events:none}',
+
+  /* ── 表格 / 详情 / 图例 ── */
+  '.fl-table-wrap{overflow-x:auto;border:1px solid var(--dra-border);border-radius:var(--dra-r-md);background:color-mix(in srgb,var(--dra-surface-1) 55%,transparent)}',
+  '.fl-table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:tabular-nums}',
+  '.fl-table th,.fl-table td{text-align:left;padding:6px 10px;border-bottom:1px solid color-mix(in srgb,var(--dra-border) 70%,transparent);white-space:nowrap;vertical-align:top}',
+  '.fl-table tbody tr:last-child>*{border-bottom:0}',
+  '.fl-table th{color:var(--dra-text-dim);font-weight:600}.fl-table tr.pinned>*{background:color-mix(in srgb,var(--dra-accent) 12%,transparent)}',
   '.fl-live{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}',
-  '.fl-detail{border:1px solid var(--dra-border-strong);border-radius:var(--dra-r-sm);background:var(--dra-surface-2);padding:10px 12px;margin-top:10px}',
+  '.fl-detail{border:1px solid var(--dra-border-strong);border-radius:var(--dra-r-md);background:var(--dra-sheen),var(--dra-glass);box-shadow:var(--dra-hl),var(--dra-shadow);padding:12px 16px;margin-top:2px;animation:dra-pop .4s var(--dra-spring) both}',
   '.fl-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
   '.fl-h{margin:0 0 6px;font-size:13px;font-weight:600}',
-  '.fl-legend{margin-top:6px}',
-  '.fl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,330px),1fr));gap:12px;align-items:start}',
-  '.fl-card{border:1px solid var(--dra-border);border-radius:var(--dra-r-md);background:var(--dra-surface-2);padding:12px;display:flex;flex-direction:column;gap:8px;min-width:0}',
-  '.fl-card.offline{border-style:dashed}.fl-card.stale{border-color:color-mix(in srgb,var(--dra-warn) 55%,transparent)}',
-  '.fl-title{font-weight:600;font-size:14px;overflow-wrap:anywhere}',
-  '.fl-meta{display:flex;gap:6px 10px;flex-wrap:wrap;color:var(--dra-text-dim);font-size:12px}',
+  '.fl-legend{margin-top:2px;display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}',
+  '.fl-sw{display:inline-flex;align-items:center;gap:5px}.fl-sw::before{content:"";width:16px;height:4px;border-radius:2px;background:var(--fl-lk);box-shadow:0 0 8px color-mix(in srgb,var(--fl-lk) 70%,transparent)}',
+
+  /* ── 机器卡：玻璃卡 + 顶部链路色光条 ── */
+  '.fl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,330px),1fr));gap:14px;align-items:start}',
+  '.fl-card{position:relative;overflow:hidden;border:1px solid var(--dra-border);border-radius:var(--dra-r-lg);background:var(--dra-sheen),var(--dra-glass);backdrop-filter:blur(16px) saturate(1.4);-webkit-backdrop-filter:blur(16px) saturate(1.4);box-shadow:var(--dra-hl),var(--dra-shadow);padding:16px 16px 14px;display:flex;flex-direction:column;gap:9px;min-width:0;transition:border-color .25s var(--dra-ease),box-shadow .25s var(--dra-ease)}',
+  '.fl-card:hover{border-color:var(--dra-border-strong);box-shadow:var(--dra-hl),var(--dra-elev-2)}',
+  '.fl-card::before{content:"";position:absolute;left:18px;right:18px;top:0;height:3px;border-radius:0 0 3px 3px;background:linear-gradient(90deg,transparent,var(--fl-lk,var(--dra-text-faint)) 18%,var(--fl-lk,var(--dra-text-faint)) 82%,transparent);box-shadow:0 0 14px color-mix(in srgb,var(--fl-lk,var(--dra-text-faint)) 65%,transparent)}',
+  '.fl-card.offline{border-style:dashed}.fl-card.offline::before{box-shadow:none;opacity:.6}.fl-card.stale{border-color:color-mix(in srgb,var(--dra-warn) 55%,transparent)}',
+  '.fl-title{font-weight:600;font-size:15px;letter-spacing:-.01em;overflow-wrap:anywhere}',
+  '.fl-meta{display:flex;gap:6px 10px;flex-wrap:wrap;align-items:center;color:var(--dra-text-dim);font-size:12px}',
   '.fl-badges{display:flex;gap:6px;flex-wrap:wrap}',
-  '.fl-gauge{display:flex;align-items:center;gap:8px;font-size:12px}.fl-gauge-k{width:34px;color:var(--dra-text-dim)}.fl-gauge-v{min-width:90px;text-align:right}',
-  '.fl-bar{flex:1;height:6px;border-radius:3px;background:var(--dra-surface-3);overflow:hidden}.fl-bar>i{display:block;height:100%;background:var(--dra-accent)}.fl-bar.hot>i{background:var(--dra-warn)}',
+  '.fl-gauge{display:flex;align-items:center;gap:10px;font-size:12px}.fl-gauge-k{width:34px;color:var(--dra-text-dim)}.fl-gauge-v{min-width:90px;text-align:right;font-variant-numeric:tabular-nums}',
+  '.fl-bar{flex:1;height:8px;border-radius:var(--dra-r-pill);background:color-mix(in srgb,var(--dra-surface-1) 70%,transparent);box-shadow:inset 0 1px 2px color-mix(in srgb,var(--dra-bg) 60%,transparent);overflow:hidden}',
+  '.fl-bar>i{display:block;height:100%;border-radius:var(--dra-r-pill);background:linear-gradient(90deg,var(--dra-accent),var(--dra-accent-2));box-shadow:0 0 10px color-mix(in srgb,var(--dra-accent) 55%,transparent);transition:width .6s var(--dra-ease)}',
+  '.fl-bar.hot>i{background:linear-gradient(90deg,var(--dra-warn),var(--dra-danger));box-shadow:0 0 10px color-mix(in srgb,var(--dra-danger) 55%,transparent)}',
   '.fl-spark{color:var(--dra-accent);vertical-align:middle}',
-  '.fl-more>summary{cursor:pointer;color:var(--dra-text-dim);font-size:12px}.fl-more[open]>summary{margin-bottom:6px}',
+  '.fl-more>summary{cursor:pointer;color:var(--dra-text-dim);font-size:12px;border-radius:var(--dra-r-xs)}.fl-more[open]>summary{margin-bottom:6px}',
   '.fl-list{margin:0;padding-left:18px;font-size:12px;display:flex;flex-direction:column;gap:2px}.fl-list.plain{list-style:none;padding-left:0}',
-  '.fl-host{border-top:1px solid var(--dra-border);padding:8px 0;display:flex;flex-direction:column;gap:6px}.fl-host:first-child{border-top:0}',
-  '.fl-step{display:flex;gap:6px;font-size:12px}.fl-step.done .fl-sg{color:var(--dra-ok)}.fl-step.failed .fl-sg{color:var(--dra-danger)}',
-  '.fl-token{font-family:var(--dra-mono);font-size:14px;padding:8px 10px;border:1px solid var(--dra-border-strong);border-radius:var(--dra-r-sm);background:var(--dra-surface-2);overflow-wrap:anywhere}',
+
+  /* ── SSH：主机分组 + 竖直时间线（当前步骤扫光） ── */
+  '.fl-host{border:1px solid var(--dra-border);border-radius:var(--dra-r-md);background:color-mix(in srgb,var(--dra-surface-1) 55%,transparent);padding:10px 14px;display:flex;flex-direction:column;gap:7px}',
+  '.fl-timeline{display:flex;flex-direction:column;margin:2px 0 0 6px;padding-left:2px}',
+  '.fl-step{position:relative;display:flex;gap:10px;align-items:baseline;font-size:12px;padding:3px 10px 3px 18px;border-radius:var(--dra-r-xs)}',
+  '.fl-step::before{content:"";position:absolute;left:5px;top:-4px;bottom:-4px;width:2px;background:var(--dra-border)}',
+  '.fl-step:first-child::before{top:50%}.fl-step:last-child::before{bottom:50%}',
+  '.fl-step.done::before{background:color-mix(in srgb,var(--dra-ok) 55%,transparent)}',
+  '.fl-sg{position:absolute;left:0;top:3px;width:12px;height:12px;line-height:12px;text-align:center;border-radius:50%;font-size:9px;background:var(--dra-surface-2);border:1px solid var(--dra-border)}',
+  '.fl-step.done .fl-sg{color:var(--dra-ok);border-color:var(--dra-ok)}.fl-step.failed .fl-sg{color:var(--dra-danger);border-color:var(--dra-danger)}',
+  '.fl-step.cur{background:color-mix(in srgb,var(--dra-accent) 9%,transparent)}.fl-step.cur .fl-sg{border-color:var(--dra-accent);color:var(--dra-accent)}',
+
+  /* ── 添加机器 ── */
+  '.fl-token{font-family:var(--dra-mono);font-size:14px;padding:10px 14px;border:1px solid transparent;border-radius:var(--dra-r-md);background:linear-gradient(var(--dra-surface-1),var(--dra-surface-1)) padding-box,var(--dra-aurora) border-box;overflow-wrap:anywhere;box-shadow:var(--dra-hl)}',
   '.fl-steps{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0;padding:0;list-style:none;counter-reset:fl}',
-  '.fl-steps li{counter-increment:fl;display:flex;align-items:center;gap:6px;border:1px solid var(--dra-border);border-radius:999px;padding:2px 12px 2px 4px}',
-  '.fl-steps li::before{content:counter(fl);width:20px;height:20px;border-radius:50%;background:var(--dra-surface-3);display:inline-flex;align-items:center;justify-content:center;font-family:var(--dra-mono);font-size:11px}',
+  '.fl-steps li{counter-increment:fl;display:flex;align-items:center;gap:8px;border:1px solid var(--dra-border);border-radius:var(--dra-r-pill);padding:3px 14px 3px 4px;background:color-mix(in srgb,var(--dra-surface-2) 55%,transparent)}',
+  '.fl-steps li::before{content:counter(fl);width:22px;height:22px;border-radius:50%;background:var(--dra-primary);color:var(--dra-on-primary);display:inline-flex;align-items:center;justify-content:center;font-family:var(--dra-mono);font-size:11px;font-weight:700}',
   '.fl-attempts{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:6px}.fl-attempts li{display:flex;gap:8px;flex-wrap:wrap;align-items:baseline;font-size:12px}',
 ]
 
 /* ── 组件 ─────────────────────────────────────────────────────────── */
 
 export function createFleet(core) {
-  const { React, h, api, Badge, Card, Fold, Banner, Stat, Empty, CopyBtn } = core
+  const { React, h, api, Dot, Badge, Card, Fold, Banner, Stat, Empty, CopyBtn } = core
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
   const safe = (promise) => promise.then((d) => d, (e) => ({ ok: false, error: fleetErrText(e) }))
 
@@ -933,6 +1067,139 @@ export function createFleet(core) {
         r.hint ? h('span', { className: 'dra-warn dra-wrap' }, '建议：' + fleetMaskText(r.hint, p.show)) : null))))
   }
 
+  /**
+   * 拓扑的 SVG 场景（纯展示，不带 hook）：星空舞台 → 雷达扫描 → 贝塞尔链路（底线 + 流光）→ 光点（飞行 / 停靠）→ 中继 → 主控 → 玻璃球节点。
+   * 动画全部由 CSS 类驱动（fleetCss 里的 @keyframes），这里不放 <animate*>，所以「减少动效」时同一份样式表就把它们全停了，画面仍是完整的静态图。
+   * 规模：按 fleetDensity 降级（节点多了不做浮动 / 脉冲 / 标签），飞行光点只给前 fleetFlyCap 个在线节点。
+   */
+  function Scene(p) {
+    const { layout, pin, focusId, nv, pos, dense } = p
+    const hub = layout.hub
+    const W = layout.width
+    const H = layout.height
+    const stars = fleetStars(W, H, 60)
+    const hubO = hub.x + 'px ' + hub.y + 'px'
+    const R = Math.round(Math.min(W, H) / 2 - 8)
+    const a0 = -0.2
+    const a1 = 0.7
+    const wedge = 'M' + hub.x + ' ' + hub.y + 'L' + fleetR1(hub.x + R * Math.cos(a0)) + ' ' + fleetR1(hub.y + R * Math.sin(a0)) + 'A' + R + ' ' + R + ' 0 0 1 ' + fleetR1(hub.x + R * Math.cos(a1)) + ' ' + fleetR1(hub.y + R * Math.sin(a1)) + 'Z'
+    const orb = dense.tier === 'dense' ? 10 : 13
+    let flying = 0
+    const hot = (id) => (focusId === id ? ' hot' : '')
+    const kids = []
+
+    kids.push(h('defs', { key: 'defs' },
+      h('radialGradient', { id: 'fl-shine', cx: '35%', cy: '28%', r: '75%' }, h('stop', { offset: '0%', className: 'fl-sa', stopOpacity: 0.7 }), h('stop', { offset: '100%', className: 'fl-sa', stopOpacity: 0 })),
+      h('radialGradient', { id: 'fl-core', cx: '38%', cy: '30%', r: '80%' }, h('stop', { offset: '0%', className: 'fl-ca' }), h('stop', { offset: '100%', className: 'fl-cb' })),
+      h('radialGradient', { id: 'fl-halo' }, h('stop', { offset: '40%', className: 'fl-ca', stopOpacity: 0.5 }), h('stop', { offset: '100%', className: 'fl-ca', stopOpacity: 0 })),
+      h('radialGradient', { id: 'fl-sweep', gradientUnits: 'userSpaceOnUse', cx: hub.x, cy: hub.y, r: R }, h('stop', { offset: '0%', className: 'fl-ca', stopOpacity: 0 }), h('stop', { offset: '100%', className: 'fl-ca', stopOpacity: 0.2 }))))
+    kids.push(h('path', { key: 'stars', className: 'fl-stars', d: stars.dots }))
+    stars.twinkle.forEach((t, i) => kids.push(h('circle', { key: 'tw' + i, cx: t.x, cy: t.y, r: 1.3, className: 'fl-twinkle', style: { animationDelay: '-' + t.delay + 's' } })))
+    kids.push(h('g', { key: 'sweep', className: 'fl-sweep', style: { transformOrigin: hubO }, 'aria-hidden': 'true' },
+      h('path', { d: wedge, fill: 'url(#fl-sweep)' }),
+      h('line', { x1: hub.x, y1: hub.y, x2: fleetR1(hub.x + R * Math.cos(a1)), y2: fleetR1(hub.y + R * Math.sin(a1)), className: 'fl-sweep-edge' })))
+
+    /* 链路 */
+    layout.edges.forEach((e) => {
+      const m = pos[e.to].model
+      const lit = e.state !== 'offline'
+      const live = [h('path', { key: 'b', d: e.d, className: 'fl-edge st-' + e.state + ' tr-' + e.transport + ' lk-' + e.link + (m.status === 'stale' ? ' stale' : '') })]
+      if (lit) live.push(h('path', { key: 'f', d: e.d, className: 'fl-flow lk-' + e.link + (e.state === 'running' ? ' fast' : '') }))
+      if (e.to === focusId) live.push(h('text', { key: 'l', x: e.lx, y: e.ly - 4, className: 'fl-elabel' }, e.label))
+      kids.push(h('g', { key: e.id, className: 'fl-link' + hot(e.to) }, live))
+    })
+    /* 光点：飞行 = 运行中的任务，停靠在节点前 = 排队，停靠在节点旁带数字 = 可靠通道积压 */
+    layout.edges.forEach((e) => {
+      const q = pos[e.to]
+      const m = q.model
+      const g = []
+      if (m.status === 'online' && m.act.running > 0 && flying < fleetFlyCap) {
+        flying += 1
+        const path = "path('" + e.d + "')"
+        g.push(h('circle', { key: 'a', r: 3.4, className: 'fl-fly lk-' + e.link, style: { offsetPath: path } }))
+        g.push(h('circle', { key: 'b', r: 2.6, className: 'fl-fly b lk-' + e.link, style: { offsetPath: path, animationDelay: '-1.2s' } }))
+      }
+      const queued = m.status === 'online' ? Math.min(m.act.queued, 2) : 0
+      for (let i = 0; i < queued; i += 1) {
+        const at = fleetPointOn(e, 0.78)
+        const dx = e.x2 - e.x1
+        const dy = e.y2 - e.y1
+        const len = Math.hypot(dx, dy) || 1
+        g.push(h('circle', { key: 'q' + i, cx: fleetR1(at.x + (-dy / len) * (i * 8 - 4)), cy: fleetR1(at.y + (dx / len) * (i * 8 - 4)), r: 3, className: 'fl-park q' }))
+      }
+      if (m.backlog) {
+        const dots = Math.min(m.backlog.pending, 3)
+        for (let i = 0; i < dots; i += 1) g.push(h('circle', { key: 'k' + i, cx: q.x + orb + 6 + i * 8, cy: q.y - orb - 2, r: 3, className: 'fl-park bl' }))
+        g.push(h('text', { key: 'kn', x: q.x + orb + 6 + dots * 8 + 1, y: q.y - orb + 1.5, className: 'fl-blcount' }, String(m.backlog.pending)))
+      }
+      if (g.length) kids.push(h('g', { key: 'pk-' + e.id, className: 'fl-packets' + hot(e.to), 'aria-hidden': 'true' }, g))
+    })
+    if (nv) {
+      nv.preview.filter((id) => pos[id] && pos[focusId]).forEach((id) => {
+        kids.push(h('line', { key: 'pe-' + id, x1: pos[focusId].x, y1: pos[focusId].y, x2: pos[id].x, y2: pos[id].y, className: 'fl-peer' }))
+      })
+    }
+    if (layout.relay) {
+      const r = layout.relay
+      kids.push(h('g', { key: 'relay', className: 'fl-relay' },
+        h('path', { d: 'M' + hub.x + ' ' + hub.y + 'L' + r.x + ' ' + r.y, className: 'fl-edge down' }),
+        h('rect', { x: r.x - r.w / 2, y: r.y - r.h / 2, width: r.w, height: r.h, rx: 13, className: 'fl-relaybox' }),
+        h('text', { x: r.x, y: r.y + 4, className: 'fl-nname' }, '中继 ✕')))
+    }
+
+    /* 主控：光晕 + 三圈轨道 + 球体核心 */
+    kids.push(h('g', { key: 'hub', className: 'fl-hubg' },
+      h('circle', { cx: hub.x, cy: hub.y, r: hub.r + 22, fill: 'url(#fl-halo)', className: 'fl-halo', style: { transformOrigin: hubO } }),
+      h('circle', { cx: hub.x, cy: hub.y, r: hub.r + 11, className: 'fl-orbit o1', style: { transformOrigin: hubO } }),
+      h('circle', { cx: hub.x, cy: hub.y, r: hub.r + 22, className: 'fl-orbit o2', style: { transformOrigin: hubO } }),
+      h('circle', { cx: hub.x, cy: hub.y, r: hub.r + 35, className: 'fl-orbit o3', style: { transformOrigin: hubO } }),
+      h('circle', { cx: hub.x, cy: hub.y, r: hub.r, fill: 'url(#fl-core)', className: 'fl-hub' }),
+      h('circle', { cx: hub.x, cy: hub.y, r: hub.r, fill: 'url(#fl-shine)', className: 'fl-shine' }),
+      h('text', { x: hub.x, y: hub.y + 4, className: 'fl-hubtext' }, '主控')))
+
+    /* 节点：玻璃球 */
+    layout.nodes.forEach((q) => {
+      const m = q.model
+      const on = m.status === 'online'
+      const label = m.name + '，' + fleetStatusText[m.status] + '，' + fleetTransportText[m.transport] + '，' + m.rttText + '，' + m.actText + (m.backlog ? '，待送达 ' + m.backlog.pending + ' 条' : '') + (pin === m.id ? '（已固定）' : '')
+      const cutName = fleetCut(m.name, dense.tier === 'dense' ? 8 : 16)
+      const cw = fleetCapsuleWidth(cutName)
+      const inner = []
+      inner.push(h('circle', { key: 'ring', cx: q.x, cy: q.y, r: orb + 7, className: 'fl-ring lk-' + m.link }))
+      if (on && dense.pulse) inner.push(h('circle', { key: 'pulse', cx: q.x, cy: q.y, r: orb + 2, className: 'fl-pulse lk-' + m.link, style: { transformOrigin: q.x + 'px ' + q.y + 'px', animationDelay: '-' + fleetR1((q.index * 0.9) % 3.6) + 's' } }))
+      inner.push(h('circle', { key: 'dot', cx: q.x, cy: q.y, r: orb, className: 'fl-dot' }))
+      inner.push(h('circle', { key: 'shine', cx: q.x, cy: q.y, r: orb, fill: 'url(#fl-shine)', className: 'fl-shine' }))
+      inner.push(h('text', { key: 'glyph', x: q.x, y: q.y + 4, className: 'fl-glyph' }, on ? '✓' : m.status === 'stale' ? '!' : '✕'))
+      if (dense.labels) {
+        inner.push(h('rect', { key: 'cap', x: fleetR1(q.x - cw / 2), y: q.y + orb + 8, width: cw, height: 16, rx: 8, className: 'fl-cap' }))
+        inner.push(h('text', { key: 'name', x: q.x, y: q.y + orb + 19.5, className: 'fl-nname' }, cutName))
+        if (dense.tier === 'full') inner.push(h('text', { key: 'sub', x: q.x, y: q.y + orb + 36, className: 'fl-nsub' }, fleetCut(m.act.running ? m.act.running + ' 运行' : m.actText, 14)))
+        if (m.version.state === 'old') {
+          const vw = fleetCapsuleWidth('v' + m.version.version)
+          inner.push(h('rect', { key: 'vcap', x: fleetR1(q.x - vw / 2), y: q.y - orb - 26, width: vw, height: 16, rx: 8, className: 'fl-cap old' }))
+          inner.push(h('text', { key: 'ver', x: q.x, y: q.y - orb - 14.5, className: 'fl-nname old' }, 'v' + m.version.version))
+        }
+      }
+      kids.push(h('g', {
+        key: m.id, className: 'fl-node ' + m.status + hot(m.id) + (pin === m.id ? ' pinned' : ''), style: { transformOrigin: q.x + 'px ' + q.y + 'px' },
+        tabIndex: 0, role: 'button', 'aria-pressed': pin === m.id ? 'true' : 'false', 'aria-label': label,
+        onClick: () => p.toggle(m.id),
+        onMouseEnter: () => p.setPeek(m.id), onMouseLeave: () => p.setPeek(''), onFocus: () => p.setPeek(m.id), onBlur: () => p.setPeek(''),
+        onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); p.toggle(m.id) } },
+      },
+      h('title', null, label),
+      h('g', { className: on && dense.float ? 'fl-float bob' : 'fl-float', style: { animationDelay: '-' + fleetR1((q.index * 0.7) % 4) + 's' } }, inner),
+      pin === m.id ? h('path', {
+        className: 'fl-reticle', style: { transformOrigin: q.x + 'px ' + q.y + 'px' },
+        d: (() => { const t = orb + 16; const k = 7; const x = q.x; const y = q.y; return 'M' + (x - t) + ' ' + (y - t + k) + 'V' + (y - t) + 'H' + (x - t + k) + 'M' + (x + t - k) + ' ' + (y - t) + 'H' + (x + t) + 'V' + (y - t + k) + 'M' + (x + t) + ' ' + (y + t - k) + 'V' + (y + t) + 'H' + (x + t - k) + 'M' + (x - t + k) + ' ' + (y + t) + 'H' + (x - t) + 'V' + (y + t - k) })(),
+      }) : null))
+    })
+    return h('svg', {
+      className: 'fl-svg fl-' + dense.tier + (focusId ? ' fl-focus' : ''), viewBox: '0 0 ' + W + ' ' + H, preserveAspectRatio: 'xMidYMid meet', role: 'group',
+      'aria-label': '机器拓扑：' + layout.nodes.length + ' 台，完整信息见下方列表',
+    }, kids)
+  }
+
   function Topology(p) {
     const [pinned, setPinned] = React.useState('')
     const [peek, setPeek] = React.useState('')
@@ -951,7 +1218,7 @@ export function createFleet(core) {
     const pos = {}
     for (const q of layout.nodes) pos[q.id] = q
     const toggle = (id) => setPinned(pin === id ? '' : id)
-    const compact = layout.nodes.length > 8
+    const dense = fleetDensity(layout.nodes.length)
     const orphans = fleetOrphans(hub.tasks, hub.nodes)
     const announce = lost ? '已固定的机器不在最新列表中' : pin ? '已固定：' + byId[pin].name : ''
     const stale = hub.error !== ''
@@ -964,32 +1231,11 @@ export function createFleet(core) {
       actions: stale ? h(Badge, { tone: 'warn' }, '数据陈旧：刷新失败，显示最后一次成功的数据') : null },
     h('div', { className: 'fl-topo', onKeyDown: (e) => { if (e.key === 'Escape' && (pin || peek)) { setPinned(''); setPeek('') } } },
       h('div', { className: 'dra-hint' }, fleetTransportLine(hub)),
-      h('svg', { className: 'fl-svg', viewBox: '0 0 ' + layout.width + ' ' + layout.height, preserveAspectRatio: 'xMidYMid meet', role: 'group', 'aria-label': '机器拓扑：' + models.length + ' 台，完整信息见下方列表' },
-        layout.edges.map((e) => h('g', { key: e.id },
-          h('line', { x1: e.x1, y1: e.y1, x2: e.x2, y2: e.y2, className: 'fl-edge st-' + e.state + ' tr-' + e.transport }),
-          compact && e.to !== pin ? null : h('text', { x: e.lx, y: e.ly - 4, className: 'fl-elabel' }, e.label))),
-        nv ? nv.preview.filter((id) => pos[id] && pos[focusId]).map((id) => h('line', { key: 'pe-' + id, x1: pos[focusId].x, y1: pos[focusId].y, x2: pos[id].x, y2: pos[id].y, className: 'fl-peer' })) : null,
-        layout.relay ? h('g', { key: 'relay' },
-          h('line', { x1: layout.hub.x, y1: layout.hub.y, x2: layout.relay.x, y2: layout.relay.y, className: 'fl-edge down' }),
-          h('rect', { x: layout.relay.x - layout.relay.w / 2, y: layout.relay.y - layout.relay.h / 2, width: layout.relay.w, height: layout.relay.h, rx: 8, className: 'fl-relaybox' }),
-          h('text', { x: layout.relay.x, y: layout.relay.y + 4, className: 'fl-nname' }, '中继 ✕')) : null,
-        h('g', { key: 'hub' }, h('circle', { cx: layout.hub.x, cy: layout.hub.y, r: layout.hub.r, className: 'fl-hub' }), h('text', { x: layout.hub.x, y: layout.hub.y + 4, className: 'fl-hubtext' }, '主控')),
-        layout.nodes.map((q) => {
-          const m = q.model
-          const label = m.name + '，' + fleetStatusText[m.status] + '，' + fleetTransportText[m.transport] + '，' + m.rttText + '，' + m.actText + (pin === m.id ? '（已固定）' : '')
-          return h('g', {
-            key: m.id, className: 'fl-node ' + m.status + (pin === m.id ? ' pinned' : ''), tabIndex: 0, role: 'button', 'aria-pressed': pin === m.id ? 'true' : 'false', 'aria-label': label,
-            onClick: () => toggle(m.id),
-            onMouseEnter: () => setPeek(m.id), onMouseLeave: () => setPeek(''), onFocus: () => setPeek(m.id), onBlur: () => setPeek(''),
-            onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(m.id) } },
-          },
-          h('title', null, label),
-          h('circle', { cx: q.x, cy: q.y, r: 13, className: 'fl-dot' }),
-          h('text', { x: q.x, y: q.y + 4, className: 'fl-glyph' }, m.status === 'online' ? '✓' : m.status === 'stale' ? '!' : '✕'),
-          h('text', { x: q.x, y: q.y + 28, className: 'fl-nname' }, fleetCut(m.name, 16)),
-          h('text', { x: q.x, y: q.y + 40, className: 'fl-nsub' }, fleetCut(m.act.running ? m.act.running + ' 运行' : m.actText, 14)))
-        })),
-      h('div', { className: 'dra-hint fl-legend' }, '实线＝直连 · 短划＝经主控中继 · 点线＝连接方式未知 · 流动粗线＝有任务在运行 · 细点线＝对等候选（服务端列出，未验证，不代表可用链路）'),
+      h('div', { className: 'fl-stage' }, Scene({ layout, pin, focusId, nv, pos, dense, toggle, setPeek })),
+      h('div', { className: 'dra-hint fl-legend' },
+        '颜色＝链路类别：',
+        fleetLinkKinds.map((k) => h('span', { key: k[0], className: 'fl-sw lk-' + k[0] }, k[1])),
+        ' · 流动的光＝链路在线 · 飞行的光点＝任务运行中 · 停在节点前的光点＝排队 · 琥珀色带数字＝可靠通道里还没送达的消息 · 细点线＝对等候选（服务端列出，未验证，不代表可用链路）'),
       h('div', { className: 'dra-hint' }, peers.label + (nv && nv.overflow > 0 ? ' · ' + byId[focusId].name + ' +' + nv.overflow + ' 更多' : '')),
       h('div', { className: 'fl-live', 'aria-live': 'polite', 'aria-atomic': 'true' }, announce),
       lost ? h('div', { className: 'dra-hint dra-warn' }, '已固定的机器不在最新列表中') : null,
@@ -1076,8 +1322,9 @@ export function createFleet(core) {
         })
       })
     }
-    return h('article', { className: 'fl-card ' + st, 'aria-label': name },
+    return h('article', { className: 'fl-card ' + st + ' lk-' + fleetLinkClass(n), 'aria-label': name },
       h('div', { className: 'fl-head' },
+        h(Dot, { tone: st === 'online' ? 'ok' : st === 'stale' ? 'warn' : '', label: fleetStatusText[st], title: fleetStatusText[st] }),
         h('span', { className: 'fl-title' }, name),
         h('span', { className: 'dra-spacer' }),
         h(StatusBadge, { node: n })),
@@ -1180,8 +1427,8 @@ export function createFleet(core) {
           probe && probe.ok !== false ? h('div', { className: 'dra-hint' }, [probe.os, probe.node && 'node ' + probe.node, probe.dsh && 'dsh ' + probe.dsh].filter(Boolean).join(' · ') + (probe.isRelay ? ' · 在 8890 端口发现中继服务' : '')) : null,
           missing.length > 0 ? h('div', { className: 'dra-hint dra-warn' }, '缺少：' + missing.join('、')) : null,
           s.installErr[alias] ? h('div', { className: 'dra-hint dra-danger', role: 'alert' }, '安装失败：' + fleetMaskText(s.installErr[alias], show)) : null,
-          job ? h('div', { className: 'dra-col', style: { gap: 3 }, role: 'status' },
-            (job.steps || []).map((st) => h('div', { key: st.name, className: 'fl-step ' + st.status },
+          job ? h('div', { className: 'fl-timeline', role: 'status' },
+            (job.steps || []).map((st, i, all) => h('div', { key: st.name, className: 'fl-step ' + st.status + (job.status === 'running' && st.status !== 'done' && all.findIndex((x) => x.status !== 'done') === i ? ' cur dra-shimmer' : '') },
               h('span', { className: 'fl-sg' }, st.status === 'done' ? '✔' : st.status === 'failed' ? '✘' : '○'),
               h('span', null, fleetStepText[st.name] || st.name),
               st.log ? h('span', { className: 'dra-hint dra-wrap' }, fleetMaskText(String(st.log).trim(), show)) : null)),

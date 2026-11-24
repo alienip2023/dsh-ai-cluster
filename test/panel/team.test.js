@@ -8,6 +8,7 @@ import {
   teamMemScopeObj, teamMemScopeOptions, teamModelOptions, teamModelsNodeView, teamModelsProject, teamNameMap, teamNodeRows,
   teamRosterProject, teamTemplateGroups, teamTurnCheck, teamTurnFromPoll, teamTurnInit, teamTurnReduce, teamUtf8Bytes,
   teamVersionNote, teamTeamScope, teamCleanModels, teamModelsTotal,
+  teamAvatarHues, teamAvatarInitial, teamAvatarSeed, teamAvatarStyle,
 } from '../../src/panel/team.js'
 import { dataEmptyHub } from '../../src/panel/data.js'
 
@@ -258,13 +259,33 @@ test('goals and audit rows, including old assign entries and unknown kinds', () 
 
 /* ── 组件输出 ───────────────────────────────────────────────────────────── */
 
-test('screen: createTeam hands the shell exactly css + Screen, css uses only tm- classes and tokens', () => {
+test('screen: createTeam hands the shell exactly css + Screen', () => {
   const team = createTeam(makeCore())
   assert.deepEqual(Object.keys(team).sort(), ['Screen', 'css'])
-  const css = team.css.join('')
-  const classes = css.match(/\.[a-z][\w-]*/g).filter((c) => !/^\.\d/.test(c))
-  assert.ok(classes.every((c) => c.startsWith('.tm-')), 'only tm- classes: ' + classes.filter((c) => !c.startsWith('.tm-')).join(','))
-  assert.equal(/#[0-9a-f]{3,6}\b|rgba?\(/i.test(css), false, 'colours come from tokens')
+  assert.ok(team.css.length > 0 && team.css.every((x) => typeof x === 'string'))
+})
+
+test('styles: own classes only, token colours only (hsl only for the avatar), no hover lift, no viewport queries, no !important', () => {
+  const css = createTeam(makeCore()).css.join('')
+  // 选择器里的类：全部是 tm-；仅有的外来类是主题修饰 .dra-light 和状态文字类 .dra-warn / .dra-ok（只出现在 .tm-note 的字形规则里）
+  const classes = [...new Set(css.replace(/"[^"]*"/g, '').match(/\.[a-z][\w-]*/g))]
+  const foreign = classes.filter((c) => !c.startsWith('.tm-') && !['.dra-light', '.dra-warn', '.dra-ok'].includes(c))
+  assert.deepEqual(foreign, [])
+  for (const rule of css.split('}').filter((r) => /\.dra-(warn|ok)/.test(r))) assert.match(rule, /\.tm-note/)
+  assert.equal(/#[0-9a-f]{3,8}\b|rgba?\(/i.test(css), false, 'colours come from tokens')
+  const hsl = css.match(/hsl\(var\([^)]*\)[^)]*\)|hsl\((?!var\()[^)]*\)/g) || []
+  assert.ok(hsl.length >= 5)
+  assert.ok(hsl.every((x) => /^hsl\(var\(--tm-h[12]\) \d+% \d+%\)$/.test(x)), 'hsl() only with the two avatar hue variables: ' + hsl.join(' | '))
+  assert.equal(/!important/.test(css), false, 'the global reduced-motion rule must not be overridden')
+  assert.equal(/@media[^{]*(width|height)/.test(css), false, 'no viewport media queries; grids use auto-fit')
+  assert.equal(/:hover[^}]*(translate|scale)/.test(css), false, 'hover brightens, it does not move')
+  assert.equal(/\.tm-[\w-]*[^{}]*\{[^}]*(?:backdrop-filter|position:fixed)/.test(css), false)
+  // 动画：只做在元素上（全局的减少动效规则只管元素，不管伪元素）
+  const animated = css.split('}').filter((r) => /animation:/.test(r) && !/@keyframes/.test(r))
+  assert.ok(animated.length >= 2, 'ring and dots')
+  assert.ok(animated.every((r) => !/::(before|after)/.test(r.split('{')[0])), 'no animated pseudo-elements')
+  for (const name of css.match(/animation:(tm-[\w-]+)/g).map((x) => x.slice(10))) assert.ok(css.includes('@keyframes ' + name), name + ' has keyframes')
+  for (const token of ['--dra-r-md', '--dra-r-pill', '--dra-glass-strong', '--dra-elev-2', '--dra-aurora', '--dra-primary']) assert.ok(css.includes(token), token)
 })
 
 test('screen: loading state with no data yet', () => {
@@ -583,4 +604,114 @@ test('memory scope options: only the team when no machine reported; muted flag o
   const rows = teamMemEntryRows({ entries: [{ id: 'e1', text: 'standing rule', pinned: true }, { id: 'e2', topic: 'work', text: 'old plan', expired: true, until: '2026-02-01' }] })
   assert.deepEqual(rows.map((r) => [r.pinned, r.expired, r.until]), [[true, false, ''], [false, true, '2026-02-01']])
   assert.deepEqual(teamMemEntryRows({}), [])
+})
+
+/* ── 视觉：头像、胶囊、气泡 ─────────────────────────────────────────────── */
+
+test('avatar hues: deterministic, in range, two distinct hues, well spread', () => {
+  assert.deepEqual(teamAvatarHues('0123456789abcdef'), teamAvatarHues('0123456789abcdef'))
+  assert.deepEqual(teamAvatarHues(''), teamAvatarHues(null), 'a missing seed is the empty seed, still stable')
+  const seeds = Array.from({ length: 600 }, (_, i) => (i % 2 === 0 ? i.toString(16).padStart(16, '0') : '小研' + i))
+  const buckets = new Set()
+  const pairs = new Set()
+  for (const sd of seeds) {
+    const [a, b] = teamAvatarHues(sd)
+    assert.ok(Number.isInteger(a) && a >= 0 && a < 360, 'h1 ' + a)
+    assert.ok(Number.isInteger(b) && b >= 0 && b < 360, 'h2 ' + b)
+    const gap = Math.min((b - a + 360) % 360, (a - b + 360) % 360)
+    assert.ok(gap >= 48, 'the two hues are visibly different: ' + gap)
+    buckets.add(Math.floor(a / 15))
+    pairs.add(a + '/' + b)
+  }
+  assert.ok(buckets.size >= 22, 'h1 covers the wheel (' + buckets.size + ' of 24 buckets)')
+  assert.ok(pairs.size > 540, 'few collisions (' + pairs.size + ' distinct pairs of 600)')
+  assert.notDeepEqual(teamAvatarHues('0123456789abcdef'), teamAvatarHues('0123456789abcdee'), 'one character changes the pair')
+})
+
+test('avatar helpers: seed prefers identity id, initial is the first code point, style carries only the two hue variables', () => {
+  assert.equal(teamAvatarSeed({ identityId: 'abc', name: 'n', id: 'i' }), 'abc')
+  assert.equal(teamAvatarSeed({ identityId: '', name: 'n', id: 'i' }), 'n')
+  assert.equal(teamAvatarSeed({ id: 'i' }), 'i')
+  assert.equal(teamAvatarSeed(null), '')
+  assert.equal(teamAvatarInitial('  小研'), '小')
+  assert.equal(teamAvatarInitial('alice'), 'A')
+  assert.equal(teamAvatarInitial('😀x'), '😀', 'a surrogate pair is not split')
+  assert.equal(teamAvatarInitial(''), '?')
+  const st = teamAvatarStyle('0123456789abcdef')
+  assert.deepEqual(Object.keys(st), ['--tm-h1', '--tm-h2'])
+  assert.deepEqual([Number(st['--tm-h1']), Number(st['--tm-h2'])], teamAvatarHues('0123456789abcdef'))
+})
+
+test('roster rows: avatar per Bot is decorative, stable, breathes only when the machine is online; identity code is a mono pill', () => {
+  const el = screenText([{ state: 'ok', nodes: roster, at: 1, error: '' }], {})
+  const avatars = findAll(el, (n) => typeof n.props?.className === 'string' && n.props.className.split(/\s+/).includes('tm-avatar'))
+  assert.equal(avatars.length, 3)
+  assert.ok(avatars.every((a) => a.props['aria-hidden'] === 'true'), 'decorative: the name is next to it')
+  assert.deepEqual(avatars.map((a) => a.props['data-initial']), ['小', '无', '旧'])
+  assert.deepEqual(avatars.map((a) => a.props.className.includes('tm-on')), [true, true, false], 'only Bots on an online machine breathe')
+  assert.deepEqual(avatars[0].props.style, teamAvatarStyle('0123456789abcdef'), 'seeded by the identity id')
+  assert.deepEqual(avatars[1].props.style, teamAvatarStyle('无身份'), 'falls back to the name')
+  assert.equal(avatars[0].props.style['--tm-h1'] === avatars[1].props.style['--tm-h1'], false)
+  const pills = findAll(el, (n) => typeof n.props?.className === 'string' && /\btm-pill\b/.test(n.props.className) && /\bdra-mono\b/.test(n.props.className))
+  assert.deepEqual(pills.map((p) => texts(p).join('')), ['01234567…', 'fedcba98…'])
+  assert.equal(pills[0].props.title, '0123456789abcdef', 'the full id is one hover away')
+  const again = screenText([{ state: 'ok', nodes: roster, at: 1, error: '' }], {})
+  assert.deepEqual(findAll(again, (n) => n.props?.['data-initial']).map((a) => a.props.style), avatars.map((a) => a.props.style), 'rendering twice gives the same colours')
+})
+
+test('machine cards: glass card with a status dot that is hidden from readers because the badge says it in words', () => {
+  const el = screenText([{ state: 'ok', nodes: roster, at: 1, error: '' }], {})
+  const cards = findAll(el, (n) => n.type === 'section' && n.props.className.includes('tm-node'))
+  assert.deepEqual(cards.map((c) => /tm-on/.test(c.props.className)), [true, true, false], 'online machines are marked, and sort before offline ones')
+  for (const c of cards) {
+    const dot = findAll(c, (n) => typeof n.props?.className === 'string' && n.props.className.split(/\s+/).includes('dra-dot'))
+    assert.equal(dot.length, 1)
+    assert.equal(dot[0].props['aria-hidden'], 'true')
+    assert.match(texts(c).join(''), /在线|离线/, 'status in words as well')
+  }
+  assert.ok(cards.every((c) => c.props.className.includes('dra-card')))
+})
+
+test('chat visuals: bubbles pop in (only the newest few), the pending bubble and the running pill carry animated dots but keep their words', () => {
+  const okCatalog = { talents: { state: 'ok', list: [], reason: '' }, templates: { state: 'ok', list: [], reason: '' } }
+  const items = Array.from({ length: 9 }, (_, i) => ({ kind: i % 2 ? 'bot' : 'user', text: 'm' + i }))
+  const screen = (turn) => [{ state: 'ok', nodes: roster, at: 1, error: '' }, { state: 'ok', nodes: [], error: '' }, okCatalog, { kind: 'chat', nodeId: 'n1', botId: 'b1' }, teamFormInit(), { busy: false, ok: false, note: '', tried: false }, {},
+    ...copyStates(roster), { state: 'ready', items, error: '' }, turn, '']
+  const core = makeCore({ state: screen(Object.assign({}, teamTurnInit, { state: 'running', sent: '在吗', linkLost: true })) })
+  const el = expand(core.h(createTeam(core).Screen, { hub: Object.assign({}, dataEmptyHub, { loading: false }), ui, go() {}, refresh() {} }))
+  const cls = (n) => (typeof n.props?.className === 'string' ? n.props.className.split(/\s+/) : [])
+  const bubbles = findAll(el, (n) => cls(n).includes('tm-msg'))
+  assert.equal(bubbles.length, 10, '9 history rows and the pending bubble')
+  assert.deepEqual(bubbles.map((b) => cls(b).includes('dra-pop')), [false, false, false, true, true, true, true, true, true, true], 'the last six history rows and the pending bubble spring in')
+  assert.deepEqual(bubbles.slice(0, 2).map((b) => cls(b).filter((c) => /^tm-(user|bot)$/.test(c))[0]), ['tm-user', 'tm-bot'])
+  const pending = bubbles[bubbles.length - 1]
+  assert.equal(pending.props['aria-hidden'], 'true', 'the pending bubble is decoration; the status line says it in words')
+  assert.equal(findAll(pending, (n) => n.type === 'i').length, 3)
+  const run = findAll(el, (n) => cls(n).includes('tm-run'))[0]
+  assert.ok(cls(run).includes('dra-shimmer'))
+  assert.equal(run.props.role, 'status')
+  assert.match(texts(run).join(''), /^运行中…你刚发的是：在吗$/)
+  assert.equal(findAll(run, (n) => n.type === 'i').length, 3)
+  const detail = findAll(el, (n) => n.type === 'section' && cls(n).includes('tm-detail'))
+  assert.equal(detail.length, 1)
+  const notes = findAll(detail[0], (n) => cls(n).includes('tm-note'))
+  assert.equal(notes.length, 1)
+  assert.match(texts(notes[0]).join(''), /连接断了/)
+  assert.ok(cls(notes[0]).includes('dra-warn'), 'the warning keeps its ▲ glyph rule via dra-warn')
+  assert.ok(cls(detail[0]).includes('dra-pop'))
+  const idle = makeCore({ state: screen(teamTurnInit) })
+  const el2 = expand(idle.h(createTeam(idle).Screen, { hub: Object.assign({}, dataEmptyHub, { loading: false }), ui, go() {}, refresh() {} }))
+  assert.equal(findAll(el2, (n) => cls(n).includes('tm-run') || cls(n).includes('tm-pending')).length, 0, 'nothing animates when idle')
+})
+
+test('memory visuals: topic and meta are pills, entries sit in an inset group', () => {
+  const el = screenText([{ state: 'ok', nodes: [], at: 1, error: '' }, { state: 'ok', nodes: [], error: '' }, { talents: { state: 'ok', list: [], reason: '' }, templates: { state: 'ok', list: [], reason: '' } }, null, teamFormInit(), { busy: false, ok: false, note: '', tried: false }, {},
+    teamTeamScope, { state: 'ok', data: { team: { entries: 1 }, nodes: [] }, reason: '', status: 200 },
+    { state: 'ok', data: { entries: [{ id: 'e1', text: '记住这个', topic: '偏好', added: '2026-11-01', by: 'user', until: '2027-01-01' }] }, reason: '', status: 200 }, '', '', false, ''], {})
+  const cls = (n) => (typeof n.props?.className === 'string' ? n.props.className.split(/\s+/) : [])
+  const chips = findAll(el, (n) => cls(n).includes('tm-chip')).map((c) => [cls(c).includes('tm-topic'), texts(c).join('')])
+  assert.deepEqual(chips, [[true, '主题 偏好'], [false, '来自 user'], [false, '添加 2026-11-01'], [false, '到期 2027-01-01']])
+  const group = findAll(el, (n) => cls(n).includes('tm-group') && cls(n).includes('tm-scroll'))
+  assert.equal(group.length, 1)
+  assert.equal(findAll(group[0], (n) => cls(n).includes('tm-row')).length, 1)
 })

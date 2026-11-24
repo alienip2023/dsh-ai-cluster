@@ -497,29 +497,105 @@ export function teamAuditRow(e, i, nameOf) {
   return { key: 'a' + i, label: meta.label, tone: meta.tone, time: coreFmtTime(o.at), text, history: kind === 'bot.assign' || kind === 'assign' }
 }
 
+/* ── 头像：由身份 id（没有就用名称）确定性生成的一对色相。同一个 Bot 永远同一对，颜色只在 CSS 里用 hsl(var(--tm-h1/h2)) 合成。 ── */
+
+/** FNV-1a（32 位，按 UTF-16 码元）；Math.imul 保证在任何引擎里结果一样。 */
+function teamHash(str, seed) {
+  let x = (0x811c9dc5 ^ seed) >>> 0
+  const s = String(str == null ? '' : str)
+  for (let i = 0; i < s.length; i += 1) x = Math.imul(x ^ s.charCodeAt(i), 0x01000193) >>> 0
+  x = Math.imul(x ^ (x >>> 15), 0x2c1b3c6d) >>> 0
+  return Math.imul(x ^ (x >>> 12), 0x297a2d39) >>> 0
+}
+
+/** seed → [h1, h2]，都是 0..359 的整数；h2 总是比 h1 偏 48..143 度，所以渐变始终有两种可辨的颜色。 */
+export function teamAvatarHues(seed) {
+  const h1 = teamHash(seed, 0) % 360
+  const h2 = (h1 + 48 + (teamHash(seed, 0x9e3779b9) % 96)) % 360
+  return [h1, h2]
+}
+
+export function teamAvatarSeed(bot) {
+  return String((bot && (bot.identityId || bot.name || bot.id)) || '')
+}
+
+/** 头像圆首字：名称的第一个字（按码点），没有名称就用 ?。 */
+export function teamAvatarInitial(name) {
+  const first = Array.from(String(name == null ? '' : name).trim())[0]
+  return first ? first.toUpperCase() : '?'
+}
+
+/** 设在元素 style 上的自定义属性（全面板唯一允许算出来的颜色，样式表里只读这两个变量）。 */
+export function teamAvatarStyle(seed) {
+  const hues = teamAvatarHues(seed)
+  return { '--tm-h1': String(hues[0]), '--tm-h2': String(hues[1]) }
+}
+
 /* ── 样式（类名前缀 tm-，颜色只用 styles.js 的 token） ─────────────────── */
 
 export const teamCss = [
-  '.tm-layout{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:12px;align-items:start}',
-  '@media (max-width:900px){.tm-layout{grid-template-columns:minmax(0,1fr)}}',
-  '.tm-bots{list-style:none;margin:0;padding:0}',
-  '.tm-bot{border-top:1px solid var(--dra-border);padding:8px 0;display:flex;flex-direction:column;gap:6px}.tm-bot:first-child{border-top:0}',
-  '.tm-bot-main{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px}.tm-name{font-weight:600;overflow-wrap:anywhere}',
-  '.tm-off .tm-bot-main,.tm-off .tm-id{opacity:.65}',
+  /* 版式：不用视口媒体查询，两栏靠 auto-fit 自动折成一栏 */
+  '.tm-layout{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,380px),1fr));gap:16px;align-items:start}',
   '.tm-sub{display:flex;flex-wrap:wrap;align-items:center;gap:6px}',
   '.tm-why{color:var(--dra-text-dim);font-size:12px;margin:0 0 6px}',
-  '.tm-log{max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:6px;border:1px solid var(--dra-border);border-radius:var(--dra-r-sm);background:var(--dra-surface-2);padding:8px}',
-  '.tm-msg{max-width:92%;border:1px solid var(--dra-border);border-radius:var(--dra-r-sm);padding:4px 8px;background:var(--dra-surface-1);align-self:flex-start}',
-  '.tm-msg.tm-user{align-self:flex-end;border-color:var(--dra-border-strong)}.tm-msg.tm-sys{align-self:center;color:var(--dra-text-dim);font-size:12px}',
-  '.tm-who{font-size:11px;color:var(--dra-text-dim)}',
+  '.tm-count{display:inline-flex;align-items:center;border:1px solid var(--dra-border);border-radius:var(--dra-r-pill);padding:2px 12px;background:color-mix(in srgb,var(--dra-surface-2) 60%,transparent);color:var(--dra-text-dim);font-variant-numeric:tabular-nums}',
+
+  /* 头像：渐变圆（颜色只来自 --tm-h1/--tm-h2），在线的有呼吸环；首字用 CSS 画，不进文本 */
+  '.tm-avatar{position:relative;flex:none;width:38px;height:38px;border-radius:var(--dra-r-pill);display:inline-flex;align-items:center;justify-content:center;color:var(--dra-ok);',
+  'background:linear-gradient(140deg,hsl(var(--tm-h1) 84% 64%),hsl(var(--tm-h2) 78% 54%));box-shadow:var(--dra-hl),0 3px 10px -3px hsl(var(--tm-h2) 80% 45%)}',
+  '.tm-avatar::before{content:attr(data-initial);color:var(--dra-on-primary);font-size:16px;font-weight:700;line-height:1}',
+  '.dra-light .tm-avatar{background:linear-gradient(140deg,hsl(var(--tm-h1) 70% 46%),hsl(var(--tm-h2) 66% 38%))}',
+  '.tm-avatar.tm-on{animation:tm-ring 2.8s ease-out infinite}',
+  '@keyframes tm-ring{0%{box-shadow:var(--dra-hl),0 0 0 0 color-mix(in srgb,currentColor 60%,transparent)}70%,100%{box-shadow:var(--dra-hl),0 0 0 9px transparent}}',
+  '.tm-off .tm-avatar{opacity:.55;filter:grayscale(.9)}',
+  '.tm-avatar.tm-sm{width:26px;height:26px}.tm-avatar.tm-sm::before{font-size:12px}',
+
+  /* 机器 = 玻璃卡：在线的顶上一条极光细光；Bot 列表是 iOS 风的内嵌分组 */
+  '.tm-node{position:relative}',
+  '.tm-node.tm-on::before{content:"";position:absolute;left:24px;right:24px;top:0;height:2px;border-radius:var(--dra-r-pill);background:var(--dra-aurora);opacity:.85}',
+  '.tm-bots{list-style:none;margin:0;padding:0;border:1px solid var(--dra-border);border-radius:var(--dra-r-md);overflow:hidden;background:color-mix(in srgb,var(--dra-surface-1) 55%,transparent)}',
+  '.tm-bot{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:start;padding:12px 14px;border-top:1px solid color-mix(in srgb,var(--dra-border) 80%,transparent);transition:background-color .2s var(--dra-ease)}',
+  '.tm-bot:first-child{border-top:0}.tm-bot:hover{background:color-mix(in srgb,var(--dra-accent) 6%,transparent)}',
+  '.tm-bot-body{display:flex;flex-direction:column;gap:7px;min-width:0}',
+  '.tm-bot-main{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}.tm-name{font-size:14px;font-weight:600;letter-spacing:-.01em;overflow-wrap:anywhere}',
+  '.tm-off .tm-bot-main,.tm-off .tm-id{opacity:.7}',
+  '.tm-chip{display:inline-flex;align-items:center;max-width:100%;border:1px solid var(--dra-border);border-radius:var(--dra-r-pill);padding:0 10px;font-size:12px;line-height:20px;color:var(--dra-text-dim);background:color-mix(in srgb,var(--dra-surface-2) 70%,transparent);overflow-wrap:anywhere}',
+  '.tm-chip.tm-topic{color:var(--dra-accent);border-color:color-mix(in srgb,var(--dra-accent) 40%,transparent);background:color-mix(in srgb,var(--dra-accent) 10%,transparent)}',
+  '.tm-pill{display:inline-flex;align-items:center;border:1px solid color-mix(in srgb,var(--dra-accent-2) 45%,transparent);border-radius:var(--dra-r-pill);padding:0 10px;font-size:12px;line-height:20px;color:var(--dra-text);background:color-mix(in srgb,var(--dra-accent-2) 14%,transparent);letter-spacing:.02em}',
+
+  /* 详情面板：抬高的玻璃卡 */
+  '.tm-detail{background:var(--dra-sheen),var(--dra-glass-strong);border-color:var(--dra-border-strong);box-shadow:var(--dra-hl),var(--dra-elev-2)}',
+  '.tm-picks{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:10px;padding:12px;border:1px dashed var(--dra-border-strong);border-radius:var(--dra-r-md);background:color-mix(in srgb,var(--dra-accent) 5%,transparent)}',
+
+  /* 聊天：气泡（--dra-r-md，朝向一侧收小角）；新的弹入；运行中三点跳动 + 扫光 */
+  '.tm-log{max-height:360px;overflow-y:auto;display:flex;flex-direction:column;gap:8px;border:1px solid var(--dra-border);border-radius:var(--dra-r-md);background:color-mix(in srgb,var(--dra-surface-1) 70%,transparent);padding:12px;scrollbar-width:thin}',
+  '.tm-msg{max-width:88%;border:1px solid var(--dra-border);border-radius:var(--dra-r-md) var(--dra-r-md) var(--dra-r-md) var(--dra-r-xs);padding:7px 13px;background:var(--dra-sheen),var(--dra-surface-2);box-shadow:var(--dra-hl),var(--dra-shadow);align-self:flex-start;min-width:0}',
+  '.tm-msg.tm-user{align-self:flex-end;border-color:transparent;border-radius:var(--dra-r-md) var(--dra-r-md) var(--dra-r-xs) var(--dra-r-md);background:var(--dra-primary);color:var(--dra-on-primary)}',
+  '.tm-msg.tm-user .tm-who{color:inherit;opacity:.8}',
+  '.tm-msg.tm-sys{align-self:center;max-width:100%;border-radius:var(--dra-r-pill);padding:2px 14px;color:var(--dra-text-dim);font-size:12px;box-shadow:none;background:color-mix(in srgb,var(--dra-surface-2) 60%,transparent)}',
+  '.tm-who{font-size:11px;color:var(--dra-text-dim);margin-bottom:1px}',
+  '.tm-pending{padding:10px 14px}',
+  '.tm-dots{display:inline-flex;align-items:center;gap:4px;margin-right:8px;vertical-align:middle}',
+  '.tm-dots i{display:block;width:7px;height:7px;border-radius:50%;background:var(--dra-accent);animation:tm-dot 1.2s var(--dra-ease) infinite}',
+  '.tm-dots i:nth-child(2){animation-delay:.16s;background:var(--dra-accent-2)}.tm-dots i:nth-child(3){animation-delay:.32s;background:var(--dra-accent-3)}',
+  '@keyframes tm-dot{0%,80%,100%{opacity:.35;transform:scale(.7)}40%{opacity:1;transform:scale(1.15)}}',
+  '.tm-run{margin:0;padding:7px 14px;border:1px solid color-mix(in srgb,var(--dra-accent) 40%,transparent);border-radius:var(--dra-r-pill);background:color-mix(in srgb,var(--dra-accent) 8%,transparent);color:var(--dra-text);font-size:12px;overflow-wrap:anywhere}',
+  '.tm-note{margin:0;padding:7px 14px;border:1px solid color-mix(in srgb,currentColor 38%,transparent);border-radius:var(--dra-r-md);background:color-mix(in srgb,currentColor 8%,transparent);overflow-wrap:anywhere}',
+  '.tm-note.dra-warn::before{content:"▲ "}.tm-note.dra-ok::before{content:"✓ "}',
+  '.tm-err{color:var(--dra-danger);font-size:12px}.tm-err::before{content:"✕ "}.tm-note.tm-err{font-size:13px}',
+
+  /* iOS 分组列表：圆角内嵌组 + 发丝分隔线（模型目录 / 记忆 / 目标 / 审计 / 定位结果） */
+  '.tm-group{border:1px solid var(--dra-border);border-radius:var(--dra-r-md);background:color-mix(in srgb,var(--dra-surface-1) 55%,transparent);overflow:hidden;margin:0;padding:0;list-style:none}',
+  '.tm-group-title{font-size:12px;font-weight:500;color:var(--dra-text-dim);margin:8px 0 4px 14px}',
+  '.tm-row{padding:9px 14px;border-top:1px solid color-mix(in srgb,var(--dra-border) 80%,transparent);min-width:0}.tm-row:first-child{border-top:0}',
+  '.tm-row-head{display:flex;align-items:center;gap:8px;background:color-mix(in srgb,var(--dra-surface-3) 40%,transparent)}',
+  '.tm-model{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}',
   '.tm-scroll{max-height:320px;overflow:auto}',
-  '.tm-line{display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:8px;align-items:baseline;padding:3px 0;border-bottom:1px solid var(--dra-border);font-size:12px}',
+  '.tm-line{display:grid;grid-template-columns:auto auto minmax(0,1fr);gap:8px;align-items:baseline;font-size:12px}',
   '.tm-line-goal{grid-template-columns:auto auto minmax(0,1fr) auto}',
-  '.tm-mem-row{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;padding:4px 0;border-bottom:1px solid var(--dra-border)}.tm-mem-row.tm-muted{opacity:.6}',
+  '.tm-mem-row{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}.tm-mem-row.tm-muted{opacity:.7}',
   '.tm-mem-text{flex:1 1 220px;min-width:0;overflow-wrap:anywhere;white-space:pre-wrap}',
-  '.tm-err{color:var(--dra-danger);font-size:12px}.tm-err::before{content:"✕ "}',
-  '.tm-group-title{font-size:12px;color:var(--dra-text-dim);margin:6px 0 2px}',
-  '.tm-list{margin:0;padding-left:18px}',
+  '.tm-compose{padding:12px 14px}',
 ]
 
 /* ── 组件 ──────────────────────────────────────────────────────────────── */
@@ -527,6 +603,15 @@ export const teamCss = [
 export function createTeam(core) {
   const { React, h, api, safe, Badge, Card, Fold, Banner, Field, Empty, CopyBtn } = core
   const enc = encodeURIComponent
+
+  /** 装饰性头像（名称就在旁边，所以对读屏隐藏）；online 时有呼吸环，离线时灰掉由 .tm-off 负责。 */
+  function avatar(name, seed, online, small) {
+    return h('span', {
+      className: 'tm-avatar' + (online ? ' tm-on' : '') + (small ? ' tm-sm' : ''), 'aria-hidden': 'true',
+      'data-initial': teamAvatarInitial(name), style: teamAvatarStyle(seed),
+    })
+  }
+  const dots = () => h('span', { className: 'tm-dots', 'aria-hidden': 'true' }, h('i'), h('i'), h('i'))
 
   /* —— Bot 对话 —— 历史与回合都在本组件里；父级用 key 区分 Bot，换 Bot / 关闭时卸载并作废在途轮询。 */
   function ChatPane(p) {
@@ -586,7 +671,8 @@ export function createTeam(core) {
     const running = turn.state === 'running'
     const blocked = p.online ? '' : '这台机器离线，发不了消息'
     return h(Card, {
-      title: '对话：' + p.name, sub: '@ ' + p.host,
+      className: 'tm-detail dra-pop' + (p.online ? '' : ' tm-off'),
+      title: '对话：' + p.name, sub: h('span', { className: 'tm-sub' }, avatar(p.name, p.seed, p.online, true), '@ ' + p.host),
       actions: [
         h('button', { key: 'e', type: 'button', className: 'dra-btn sm', onClick: p.onEdit, disabled: !p.online, title: blocked }, '编辑'),
         h('button', { key: 'c', type: 'button', className: 'dra-btn sm', onClick: p.onClose }, '关闭'),
@@ -598,18 +684,19 @@ export function createTeam(core) {
       h('div', { className: 'tm-log', ref: logEl, role: 'log', 'aria-live': 'polite', 'aria-label': '对话记录' },
         hist.state === 'loading' && rows.length === 0 ? h('p', { className: 'dra-hint' }, '加载中…') : null,
         hist.state === 'ready' && rows.length === 0 ? h('p', { className: 'dra-hint' }, '还没有对话') : null,
-        rows.map((r) => h('div', { key: r.key, className: 'tm-msg tm-' + r.side },
+        rows.map((r, i) => h('div', { key: r.key, className: 'tm-msg tm-' + r.side + (i >= rows.length - 6 ? ' dra-pop' : '') },
           r.who ? h('div', { className: 'tm-who' }, r.who + (r.time ? ' · ' + r.time : '')) : null,
-          h('div', { className: 'dra-wrap' }, r.text)))),
+          h('div', { className: 'dra-wrap' }, r.text))),
+        running ? h('div', { className: 'tm-msg tm-bot tm-pending dra-pop', 'aria-hidden': 'true' }, dots()) : null),
       hist.state === 'loading' && rows.length > 0 ? h('p', { className: 'dra-hint', role: 'status' }, '刷新对话中…') : null,
-      running ? h('p', { className: 'dra-hint', role: 'status' }, '运行中…你刚发的是：' + turn.sent) : null,
-      running && turn.linkLost ? h('p', { className: 'dra-warn', role: 'status' }, '与这台机器的连接断了；结果可能在重连后补回来，仍在等待。') : null,
-      running && turn.warn ? h('p', { className: 'dra-warn', role: 'status' }, '读取进度失败（会重试）：' + turn.warn) : null,
-      turn.state === 'failed' ? h('p', { className: 'tm-err', role: 'alert' }, '失败：' + teamExplain(turn.error) + (turn.text ? '；已收到的部分回答：' + turn.text : '')) : null,
-      turn.state === 'timeout' ? h('p', { className: 'dra-warn', role: 'status' }, '等了 5 分钟还没有结果；稍后点「刷新对话」看看历史里有没有。') : null,
+      running ? h('p', { className: 'tm-run dra-shimmer', role: 'status' }, dots(), '运行中…你刚发的是：' + turn.sent) : null,
+      running && turn.linkLost ? h('p', { className: 'tm-note dra-warn', role: 'status' }, '与这台机器的连接断了；结果可能在重连后补回来，仍在等待。') : null,
+      running && turn.warn ? h('p', { className: 'tm-note dra-warn', role: 'status' }, '读取进度失败（会重试）：' + turn.warn) : null,
+      turn.state === 'failed' ? h('p', { className: 'tm-note tm-err', role: 'alert' }, '失败：' + teamExplain(turn.error) + (turn.text ? '；已收到的部分回答：' + turn.text : '')) : null,
+      turn.state === 'timeout' ? h('p', { className: 'tm-note dra-warn', role: 'status' }, '等了 5 分钟还没有结果；稍后点「刷新对话」看看历史里有没有。') : null,
       turn.state === 'done' ? (hist.state === 'ready'
-        ? h('p', { className: 'dra-ok', role: 'status' }, '已完成，回答在上方对话里。')
-        : h('p', { className: 'dra-wrap', role: 'status' }, 'Bot 回答：' + turn.text)) : null,
+        ? h('p', { className: 'tm-note dra-ok', role: 'status' }, '已完成，回答在上方对话里。')
+        : h('p', { className: 'tm-note dra-wrap', role: 'status' }, 'Bot 回答：' + turn.text)) : null,
       h(Field, { label: '发给 ' + p.name, wide: true, hint: 'Enter 发送，Shift+Enter 换行 · ' + draft.length + '/' + teamTurnTextMax },
         h('textarea', {
           className: 'dra-textarea', rows: 3, value: draft, placeholder: '发给这个 Bot…',
@@ -636,7 +723,8 @@ export function createTeam(core) {
     React.useEffect(() => { locate(); return () => { seq.current += 1 } }, [])
     const view = res.state === 'ready' ? teamLocateView(res.data, p.nameOf) : null
     return h(Card, {
-      title: '定位：' + p.name, sub: '身份 id ' + p.identityId,
+      className: 'tm-detail dra-pop',
+      title: '定位：' + p.name, sub: h('span', { className: 'tm-sub' }, avatar(p.name, p.identityId, true, true), '身份 id ', h('span', { className: 'tm-pill dra-mono' }, p.identityId)),
       actions: [
         h('button', { key: 'r', type: 'button', className: 'dra-btn sm', disabled: res.state === 'loading', onClick: locate }, res.state === 'loading' ? '询问中…' : '重新定位'),
         h('button', { key: 'c', type: 'button', className: 'dra-btn sm', onClick: p.onClose }, '关闭'),
@@ -646,12 +734,12 @@ export function createTeam(core) {
       res.state === 'loading' ? h('p', { className: 'dra-hint', role: 'status' }, '正在问所有在线机器（最多等几秒）…') : null,
       res.state === 'error' ? h(Banner, { tone: 'err', title: '定位失败' }, teamExplain(res.error)) : null,
       view && view.found.length > 0 ? h('div', null,
-        h('p', { className: 'dra-ok' }, 'Bot 现在在这些机器上（已用它自己的密钥核验）：'),
-        h('ul', { className: 'tm-list' }, view.found.map((l) => h('li', { key: l.nodeId }, l.label + (l.machineId ? ' · 机器标识 ' + coreShortId(l.machineId, 12) : ''))))) : null,
-      view && view.nobody ? h('p', { className: 'dra-warn' }, '没有任何机器认领这个 Bot（它可能不在线，或所在机器还没回答）。') : null,
+        h('p', { className: 'tm-note dra-ok' }, 'Bot 现在在这些机器上（已用它自己的密钥核验）：'),
+        h('ul', { className: 'tm-group' }, view.found.map((l) => h('li', { key: l.nodeId, className: 'tm-row' }, l.label + (l.machineId ? ' · 机器标识 ' + coreShortId(l.machineId, 12) : ''))))) : null,
+      view && view.nobody ? h('p', { className: 'tm-note dra-warn' }, '没有任何机器认领这个 Bot（它可能不在线，或所在机器还没回答）。') : null,
       view ? view.groups.map((g) => h('div', { key: g.id },
         h('div', { className: 'tm-group-title' }, g.title + '（' + g.items.length + '）'),
-        h('ul', { className: 'tm-list' }, g.items.map((x, i) => h('li', { key: i }, x))))) : null))
+        h('ul', { className: 'tm-group' }, g.items.map((x, i) => h('li', { key: i, className: 'tm-row' }, x))))) : null))
   }
 
   /* —— 团队记忆。选中的范围、草稿、提示全放在这里；轮询只刷新数据，不碰它们。 */
@@ -745,16 +833,16 @@ export function createTeam(core) {
       view.state === 'loading' ? h('p', { className: 'dra-hint', role: 'status' }, '读取中…') : null,
       view.state === 'error' ? h('p', { className: 'tm-err', role: 'alert' }, '读记忆失败：' + view.reason) : null,
       view.state === 'ok' && rows.length === 0 ? h('p', { className: 'dra-hint' }, '这个范围还没有记忆') : null,
-      rows.length > 0 ? h('div', { className: 'tm-scroll' }, rows.map((r) => {
-        const meta = [r.topic ? '主题 ' + r.topic : '', r.by ? '来自 ' + r.by : '', r.added ? '添加 ' + r.added : '', r.until ? '到期 ' + r.until : ''].filter(Boolean)
-        return h('div', { key: r.key, className: 'tm-mem-row' + (r.expired ? ' tm-muted' : '') },
+      rows.length > 0 ? h('div', { className: 'tm-group tm-scroll' }, rows.map((r) => {
+        const chips = [r.topic ? ['tm-topic', '主题 ' + r.topic] : null, r.by ? ['', '来自 ' + r.by] : null, r.added ? ['', '添加 ' + r.added] : null, r.until ? ['', '到期 ' + r.until] : null].filter(Boolean)
+        return h('div', { key: r.key, className: 'tm-row tm-mem-row' + (r.expired ? ' tm-muted' : '') },
           r.pinned ? h(Badge, { tone: 'acc' }, '置顶') : null,
           r.expired ? h(Badge, null, '已过期') : null,
           h('span', { className: 'tm-mem-text' }, r.text),
-          h('span', { className: 'dra-hint' }, meta.join(' · ')),
+          chips.map((c, i) => h('span', { key: i, className: 'tm-chip ' + c[0] }, c[1])),
           h('button', { type: 'button', className: 'dra-btn sm danger', disabled: busy, onClick: () => forget(r) }, '遗忘'))
       })) : null,
-      h('form', { className: 'dra-form', onSubmit: (e) => { e.preventDefault(); add() } },
+      h('form', { className: 'dra-form tm-group tm-compose', onSubmit: (e) => { e.preventDefault(); add() } },
         h(Field, { label: '记住一件事', wide: true },
           h('input', { className: 'dra-input', value: draft, placeholder: '写进当前范围的记忆…', onChange: (e) => setDraft(e.target.value) })),
         h(Field, { label: '主题（可选）' },
@@ -774,28 +862,29 @@ export function createTeam(core) {
     return h('div', { className: 'dra-col' },
       stale ? h('p', { className: 'tm-err', role: 'alert' }, '刷新失败，下面是上一次的数据：' + models.error) : null,
       views.every((v) => v.state !== 'list') ? h('p', { className: 'dra-hint' }, '所有机器都没有可用模型') : null,
-      views.map((v) => h('div', { key: v.nodeId, className: 'dra-col' },
-        h('div', { className: 'dra-row' }, h('span', { className: 'dra-mono' }, v.hostname), h(Badge, { tone: v.online ? 'ok' : '' }, v.online ? '在线' : '离线')),
-        v.state === 'unreported' ? h('p', { className: 'dra-hint' }, '尚未上报模型') : null,
-        v.state === 'none' ? h('p', { className: 'dra-hint' }, '没有可用模型') : null,
-        v.rows.map((m) => h('div', { key: m.id, className: 'dra-row' },
+      views.map((v) => h('div', { key: v.nodeId, className: 'tm-group' + (v.online ? '' : ' tm-off') },
+        h('div', { className: 'tm-row tm-row-head' }, h('span', { className: 'dra-mono' }, v.hostname), h(Badge, { tone: v.online ? 'ok' : '' }, v.online ? '在线' : '离线')),
+        v.state === 'unreported' ? h('p', { className: 'tm-row dra-hint' }, '尚未上报模型') : null,
+        v.state === 'none' ? h('p', { className: 'tm-row dra-hint' }, '没有可用模型') : null,
+        v.rows.map((m) => h('div', { key: m.id, className: 'tm-row tm-model' },
           h('span', { className: 'dra-mono' }, m.label),
           m.isDefault ? h(Badge, { tone: 'acc' }, '默认') : null,
-          h('span', { className: 'dra-hint' }, m.efforts.length === 0 ? '无思考等级' : '思考等级：' + m.efforts.join(' / ')))))))
+          h('span', { className: 'tm-chip' }, m.efforts.length === 0 ? '无思考等级' : '思考等级：' + m.efforts.join(' / ')))))))
   }
 
   function goalsBody(hub, nameOf) {
     if (hub.goals === undefined) return h('p', { className: 'dra-hint', role: 'status' }, hub.loading ? '读取中…' : '暂时读不到目标列表')
     if (hub.goals.length === 0) return h('p', { className: 'dra-hint' }, '没有 Bot 在追踪目标')
     const g = teamGoalGroups(hub.goals)
-    const rows = (list, idle) => list.map((x, i) => h('div', { key: x.nodeId + '/' + x.botId + '/' + (x.roomId || '') + '/' + i, className: 'tm-line tm-line-goal' },
+    const rows = (list, idle) => list.map((x, i) => h('div', { key: x.nodeId + '/' + x.botId + '/' + (x.roomId || '') + '/' + i, className: 'tm-row tm-line tm-line-goal' },
       h(Badge, { tone: idle ? '' : 'acc' }, idle ? '空闲' : '进行中'),
       h('span', { className: 'dra-mono' }, (x.botName || x.botId) + ' @ ' + nameOf(x.nodeId)),
       h('span', { className: 'dra-wrap' }, x.goal || '（无目标）'),
       h('span', { className: 'dra-hint' }, x.lastAt ? coreFmtTime(x.lastAt) : '')))
-    return h('div', { className: 'tm-scroll' },
-      g.active.length ? h('div', { className: 'tm-group-title' }, '进行中（' + g.active.length + '）') : null, rows(g.active, false),
-      g.idle.length ? h('div', { className: 'tm-group-title' }, '空闲（' + g.idle.length + '）') : null, rows(g.idle, true))
+    const section = (title, list, idle) => (list.length ? [
+      h('div', { key: 't' + idle, className: 'tm-group-title' }, title + '（' + list.length + '）'),
+      h('div', { key: 'g' + idle, className: 'tm-group tm-scroll' }, rows(list, idle))] : null)
+    return h('div', { className: 'dra-col' }, section('进行中', g.active, false), section('空闲', g.idle, true))
   }
 
   function auditBody(hub, nameOf) {
@@ -803,9 +892,9 @@ export function createTeam(core) {
     return h('div', { className: 'dra-col' },
       h('p', { className: 'dra-hint' }, '只读历史，最近 200 条、新的在前。0.4.36 起不再产生新的 assign 记录，旧记录照常显示。'),
       hub.botAudit.length === 0 ? h('p', { className: 'dra-hint' }, '还没有 Bot 之间的通信') : null,
-      h('div', { className: 'tm-scroll' }, hub.botAudit.map((e, i) => {
+      hub.botAudit.length === 0 ? null : h('div', { className: 'tm-group tm-scroll' }, hub.botAudit.map((e, i) => {
         const r = teamAuditRow(e, i, nameOf)
-        return h('div', { key: r.key, className: 'tm-line' },
+        return h('div', { key: r.key, className: 'tm-row tm-line' },
           h(Badge, { tone: r.tone }, r.label), h('span', { className: 'dra-hint' }, r.time), h('span', { className: 'dra-wrap' }, r.text))
       })))
   }
@@ -941,34 +1030,37 @@ export function createTeam(core) {
       const b = teamBotBlockers(node, bot)
       const stop = stopping[bot.key] === true
       return h('li', { key: bot.key, className: 'tm-bot' },
-        h('div', { className: 'tm-bot-main' },
-          h('span', { className: 'tm-name' }, bot.name),
-          bot.role ? h('span', { className: 'dra-hint' }, '角色 ' + bot.role) : null,
-          h('span', { className: 'dra-mono dra-hint' }, bot.model ? '模型 ' + bot.model : '模型未设置')),
-        h('div', { className: 'tm-sub tm-id' },
-          bot.identityId
-            ? [h('span', { key: 'i', className: 'dra-hint' }, '身份 '), h('span', { key: 'v', className: 'dra-mono', title: bot.identityId }, bot.shortId + '…'),
-              h(CopyBtn, { key: 'c', text: bot.identityId, label: '复制 id', title: '复制完整身份 id' })]
-            : h('span', { className: 'dra-hint' }, '没有身份 id')),
-        h('div', { className: 'dra-row' },
-          h('button', { type: 'button', className: 'dra-btn sm', disabled: !!b.chat, title: b.chat, onClick: () => openChat(node, bot) }, '对话'),
-          h('button', { type: 'button', className: 'dra-btn sm', disabled: !!b.edit, title: b.edit, onClick: () => openEdit(node, bot) }, '编辑'),
-          h('button', { type: 'button', className: 'dra-btn sm danger', disabled: !!b.stop || stop, title: b.stop || '停止这个 Bot 当前正在跑的回合', onClick: () => stopBot(node, bot) }, stop ? '停止中…' : '停止'),
-          h('button', { type: 'button', className: 'dra-btn sm', disabled: !!b.locate, title: b.locate || '问所有在线机器：这个 Bot 现在在哪', onClick: () => setDetail({ kind: 'locate', nodeId: node.nodeId, botId: bot.id }) }, '定位')),
-        b.locate ? h('p', { className: 'tm-why' }, b.locate) : null)
+        avatar(bot.name, teamAvatarSeed(bot), node.online),
+        h('div', { className: 'tm-bot-body' },
+          h('div', { className: 'tm-bot-main' },
+            h('span', { className: 'tm-name' }, bot.name),
+            bot.role ? h('span', { className: 'tm-chip' }, '角色 ' + bot.role) : null,
+            h('span', { className: 'tm-chip dra-mono' }, bot.model ? '模型 ' + bot.model : '模型未设置')),
+          h('div', { className: 'tm-sub tm-id' },
+            bot.identityId
+              ? [h('span', { key: 'i', className: 'dra-hint' }, '身份 '), h('span', { key: 'v', className: 'tm-pill dra-mono', title: bot.identityId }, bot.shortId + '…'),
+                h(CopyBtn, { key: 'c', text: bot.identityId, label: '复制 id', title: '复制完整身份 id' })]
+              : h('span', { className: 'dra-hint' }, '没有身份 id')),
+          h('div', { className: 'dra-row' },
+            h('button', { type: 'button', className: 'dra-btn sm', disabled: !!b.chat, title: b.chat, onClick: () => openChat(node, bot) }, '对话'),
+            h('button', { type: 'button', className: 'dra-btn sm', disabled: !!b.edit, title: b.edit, onClick: () => openEdit(node, bot) }, '编辑'),
+            h('button', { type: 'button', className: 'dra-btn sm danger', disabled: !!b.stop || stop, title: b.stop || '停止这个 Bot 当前正在跑的回合', onClick: () => stopBot(node, bot) }, stop ? '停止中…' : '停止'),
+            h('button', { type: 'button', className: 'dra-btn sm', disabled: !!b.locate, title: b.locate || '问所有在线机器：这个 Bot 现在在哪', onClick: () => setDetail({ kind: 'locate', nodeId: node.nodeId, botId: bot.id }) }, '定位')),
+          b.locate ? h('p', { className: 'tm-why' }, b.locate) : null))
     }
 
     function nodeCard(node) {
       const v = teamVersionNote(node)
       return h(Card, {
-        key: node.nodeId, className: 'tm-node' + (node.online ? '' : ' tm-off'), title: node.hostname,
+        key: node.nodeId, className: 'tm-node ' + (node.online ? 'tm-on' : 'tm-off'), title: node.hostname,
         sub: h('span', { className: 'tm-sub' },
+          h('span', { className: 'dra-dot ' + (node.online ? 'ok' : ''), 'aria-hidden': 'true' }),
           h(Badge, { tone: node.online ? 'ok' : '' }, node.online ? '在线' : '离线'),
           h(Badge, { tone: v.tone }, v.badge),
           h('span', { className: 'dra-hint dra-mono' }, node.nodeId)),
         actions: h('button', { type: 'button', className: 'dra-btn sm', disabled: !node.online, title: node.online ? '' : '这台机器离线，不能在它上面新建 Bot', onClick: () => openCreate(node.nodeId) }, '在这台新建'),
       },
-      v.hint ? h('p', { className: 'dra-warn' }, v.hint) : null,
+      v.hint ? h('p', { className: 'tm-note dra-warn' }, v.hint) : null,
       node.online ? null : h('p', { className: 'tm-why', role: 'status' }, '这台机器离线：下面是最后一次名册' + (node.lastSeen ? '（最后在线 ' + coreFmtTime(node.lastSeen) + '）' : '') + '；对话、编辑、停止不可用。'),
       node.bots.length === 0
         ? h('p', { className: 'dra-hint' }, node.hasRoster ? '这台机器上还没有 Bot' : '这台机器还没有上报名册')
@@ -999,23 +1091,30 @@ export function createTeam(core) {
       const talents = catalog.talents.list
       const blank = editing ? '（留空 = 不修改）' : ''
       const node = rows.find((n) => n.nodeId === form.nodeId)
-      return h(Card, { title: editing ? '编辑 Bot：' + (form.base && form.base.name ? form.base.name : form.botId) : '新建 Bot', sub: editing ? 'id ' + form.botId : null },
+      return h(Card, { className: 'tm-detail dra-pop', title: editing ? '编辑 Bot：' + (form.base && form.base.name ? form.base.name : form.botId) : '新建 Bot', sub: editing ? 'id ' + form.botId : null },
         h('form', { className: 'dra-col', onSubmit: (e) => { e.preventDefault(); submitForm() } },
-          !editing && groups.length > 0 ? h(Field, { label: '从模板库套用（可选）' },
-            h('select', { className: 'dra-select', value: '', onChange: (e) => {
-              const t = catalog.templates.list.find((x) => x.id === e.target.value)
-              if (t) setForm((prev) => teamApplyTemplate(prev, t))
-            } },
-            h('option', { value: '' }, '选一个模板…'),
-            groups.map((g) => h('optgroup', { key: g.category, label: g.category },
-              g.items.map((t) => h('option', { key: t.id, value: t.id }, t.name + (t.role ? ' · ' + t.role : ''))))))) : null,
-          !editing && talents.length > 0 ? h(Field, { label: '从人才库套用（可选）' },
-            h('select', { className: 'dra-select', value: '', onChange: (e) => {
-              const t = talents.find((x) => x.name === e.target.value)
-              if (t) setForm((prev) => teamApplyTalent(prev, t))
-            } },
-            h('option', { value: '' }, '选一位人才…'),
-            talents.map((t) => h('option', { key: t.name, value: t.name }, t.name + (t.role ? ' · ' + t.role : '') + (t.category ? ' [' + t.category + ']' : ''))))) : null,
+          !editing && (groups.length > 0 || talents.length > 0) ? h('div', { className: 'tm-picks' },
+            groups.length > 0 ? h(Field, { label: '从模板库套用（可选）' },
+              h('select', {
+                className: 'dra-select', value: '',
+                onChange: (e) => {
+                  const t = catalog.templates.list.find((x) => x.id === e.target.value)
+                  if (t) setForm((prev) => teamApplyTemplate(prev, t))
+                },
+              },
+              h('option', { value: '' }, '选一个模板…'),
+              groups.map((g) => h('optgroup', { key: g.category, label: g.category },
+                g.items.map((t) => h('option', { key: t.id, value: t.id }, t.name + (t.role ? ' · ' + t.role : ''))))))) : null,
+            talents.length > 0 ? h(Field, { label: '从人才库套用（可选）' },
+              h('select', {
+                className: 'dra-select', value: '',
+                onChange: (e) => {
+                  const t = talents.find((x) => x.name === e.target.value)
+                  if (t) setForm((prev) => teamApplyTalent(prev, t))
+                },
+              },
+              h('option', { value: '' }, '选一位人才…'),
+              talents.map((t) => h('option', { key: t.name, value: t.name }, t.name + (t.role ? ' · ' + t.role : '') + (t.category ? ' [' + t.category + ']' : ''))))) : null) : null,
           !editing && (catalog.templates.state === 'error' || catalog.talents.state === 'error')
             ? h('p', { className: 'dra-hint' }, '模板库 / 人才库读取失败：' + [catalog.templates, catalog.talents].filter((c) => c.state === 'error').map((c) => c.reason).join(' / ')) : null,
           form.applied ? h('p', { className: 'dra-hint', role: 'status' }, '已套用' + form.applied + '，下面的内容都可以继续改。') : null,
@@ -1051,17 +1150,17 @@ export function createTeam(core) {
 
     function detailView() {
       if (!detail) {
-        return h(Card, { title: '详情' }, h(Empty, null, '点 Bot 的「对话」「编辑」「定位」，或「新建 Bot」，内容会显示在这里。'))
+        return h(Card, { className: 'tm-detail', title: '详情' }, h(Empty, null, '点 Bot 的「对话」「编辑」「定位」，或「新建 Bot」，内容会显示在这里。'))
       }
       if (detail.kind === 'form') return formView()
       const f = teamFindBot(rows, detail.nodeId, detail.botId)
-      const gone = h(Card, { title: '详情', actions: h('button', { type: 'button', className: 'dra-btn sm', onClick: () => setDetail(null) }, '关闭') },
-        h('p', { className: 'dra-warn' }, '这个 Bot 已经不在名册里了（可能被删除，或名册还没刷新）。'))
-      if (!f) return bots.state === 'loading' ? h(Card, { title: '详情' }, h('p', { className: 'dra-hint' }, '读取名册中…')) : gone
+      const gone = h(Card, { className: 'tm-detail', title: '详情', actions: h('button', { type: 'button', className: 'dra-btn sm', onClick: () => setDetail(null) }, '关闭') },
+        h('p', { className: 'tm-note dra-warn' }, '这个 Bot 已经不在名册里了（可能被删除，或名册还没刷新）。'))
+      if (!f) return bots.state === 'loading' ? h(Card, { className: 'tm-detail', title: '详情' }, h('p', { className: 'dra-hint' }, '读取名册中…')) : gone
       if (detail.kind === 'chat') {
         return h(ChatPane, {
           key: 'chat:' + f.node.nodeId + '/' + f.bot.id, nodeId: f.node.nodeId, botId: f.bot.id, name: f.bot.name, host: f.node.hostname,
-          online: f.node.online, onClose: () => setDetail(null), onEdit: () => openEdit(f.node, f.bot),
+          online: f.node.online, seed: teamAvatarSeed(f.bot), onClose: () => setDetail(null), onEdit: () => openEdit(f.node, f.bot),
         })
       }
       if (!f.bot.identityId) return gone
@@ -1071,7 +1170,7 @@ export function createTeam(core) {
     const modelTotal = teamModelsTotal(models.nodes)
     return h('div', { className: 'dra-col' },
       h('div', { className: 'dra-row' },
-        h('span', { className: 'dra-hint' }, rows.length + ' 台机器 · ' + totalBots + ' 个 Bot'),
+        h('span', { className: 'tm-count' }, rows.length + ' 台机器 · ' + totalBots + ' 个 Bot'),
         h('span', { className: 'dra-spacer' }),
         h('button', { type: 'button', className: 'dra-btn primary', onClick: () => openCreate('') }, '新建 Bot'),
         h('button', { type: 'button', className: 'dra-btn', onClick: () => { loadBots(true); loadModels() } }, '刷新名册')),

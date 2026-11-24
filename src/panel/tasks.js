@@ -30,7 +30,7 @@ export function tasksStatusTone(status) {
   if (status === 'completed') return 'ok'
   if (coreFailedStatuses.indexOf(status) >= 0) return 'bad'
   if (status === 'pending_approval' || status === 'interrupted') return 'warn'
-  return 'acc'
+  return status === 'running' || status === 'queued' ? 'acc' : ''
 }
 
 export const tasksFilterDefs = [['all', '全部'], ['active', '进行中'], ['done', '已完成'], ['failed', '失败·中止·拒绝']]
@@ -411,55 +411,113 @@ export function createTasks(core) {
   const { React, h, api, Badge, Banner, Card, CopyBtn, Empty, Field, Fold, Seg, Stat } = core
 
   const css = [
-    '.tk{display:flex;flex-direction:column;gap:12px;min-width:0}',
-    '.tk-note{position:sticky;top:0;z-index:5}.tk-note .dra-banner{margin:0;box-shadow:var(--dra-shadow)}',
-    '.tk-quads{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}',
-    '.tk-quad{border:1px solid var(--dra-border);border-radius:var(--dra-r-sm);background:var(--dra-surface-2);padding:8px 10px;min-width:0}',
-    '.tk-quad-title{display:flex;justify-content:space-between;gap:8px;font-weight:600;font-size:12px;margin:0 0 4px}',
-    '.tk-quad-count{font-family:var(--dra-mono);color:var(--dra-text-dim);font-weight:400}',
-    '.tk-quad-item{display:block;width:100%;text-align:left;background:none;border:0;border-radius:4px;color:var(--dra-text);padding:3px 4px;font:inherit;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-    '.tk-quad-item:hover{background:var(--dra-surface-3)}',
-    '.tk-quad-none{color:var(--dra-text-faint);font-size:12px;padding:3px 4px}',
-    '.tk-tpl{display:grid;grid-template-columns:minmax(180px,1fr) auto;gap:8px;align-items:end;margin-bottom:10px}',
-    '.tk-tpl-btns{display:flex;gap:6px;flex-wrap:wrap}',
-    '.tk-tpl-msg{grid-column:1/-1}',
-    '.tk-form-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:10px}',
-    '.tk-split{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:12px;align-items:start}',
-    '@media (min-width:900px){.tk-detail-col{position:sticky;top:8px;max-height:calc(100vh - 24px);overflow:auto}}',
-    '.tk-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}',
-    '.tk-group{margin:10px 0 4px;font-size:12px;color:var(--dra-text-dim);font-weight:600}',
-    '.tk-row{display:flex;gap:8px;align-items:flex-start;padding:8px 6px;border-top:1px solid var(--dra-border);border-radius:var(--dra-r-sm)}',
-    '.tk-row:first-child{border-top:0}',
-    '.tk-row.sel{background:color-mix(in srgb,var(--dra-accent) 8%,transparent);box-shadow:inset 3px 0 0 var(--dra-accent)}',
-    '.tk-row-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;text-align:left;background:none;border:0;color:var(--dra-text);font:inherit;cursor:pointer;padding:0}',
-    '.tk-row-title{display:flex;gap:6px;align-items:center;flex-wrap:wrap}',
-    '.tk-goal{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}',
-    '.tk-row-sub{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--dra-text-dim)}',
+    '.tk{display:flex;flex-direction:column;gap:14px;min-width:0}',
+    '.tk-note{position:sticky;top:0;z-index:5}.tk-note .dra-banner{margin:0;box-shadow:var(--dra-hl),var(--dra-elev-2)}',
+    '.tk-dur{font-family:var(--dra-mono);font-variant-numeric:tabular-nums}',
+
+    /* 四个象限：大玻璃块，状态字形 + 大号等宽数字 */
+    '.tk-attn{gap:14px}',
+    '.tk-quads{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}',
+    '.tk-quad{display:flex;flex-direction:column;gap:6px;min-width:0;padding:14px 16px 12px;border:1px solid var(--dra-border);border-radius:var(--dra-r-md);background:var(--dra-sheen),var(--dra-glass);box-shadow:var(--dra-hl),var(--dra-shadow)}',
+    '.tk-quad.needs{--tk-tone:var(--dra-warn)}.tk-quad.working{--tk-tone:var(--dra-accent)}.tk-quad.blocked{--tk-tone:var(--dra-danger)}.tk-quad.done{--tk-tone:var(--dra-ok)}',
+    '.tk-quad.needs.hot{border-color:color-mix(in srgb,var(--dra-warn) 55%,transparent);box-shadow:var(--dra-hl),var(--dra-elev-2)}',
+    '.tk-quad-title{display:flex;align-items:center;gap:7px;margin:0;font-size:12px;font-weight:600;color:var(--dra-text-dim)}',
+    '.tk-quad-glyph{display:inline-grid;place-items:center;width:20px;height:20px;border-radius:var(--dra-r-pill);font-size:11px;color:var(--tk-tone);background:color-mix(in srgb,var(--tk-tone) 16%,transparent);border:1px solid color-mix(in srgb,var(--tk-tone) 45%,transparent)}',
+    '.tk-quad.needs .tk-quad-glyph::before{content:"▲"}.tk-quad.working .tk-quad-glyph::before{content:"●"}.tk-quad.blocked .tk-quad-glyph::before{content:"✕"}.tk-quad.done .tk-quad-glyph::before{content:"✓"}',
+    '.tk-quad-count{font-size:34px;line-height:1.05;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;color:var(--tk-tone)}',
+    '.tk-quad.zero .tk-quad-count{color:var(--dra-text-dim)}',
+    '.tk-quad-items{display:flex;flex-direction:column;gap:2px;margin-top:2px;min-width:0}',
+    '.tk-quad-item{display:block;width:100%;text-align:left;background:none;border:0;border-radius:var(--dra-r-sm);color:var(--dra-text);padding:4px 8px;font:inherit;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;transition:background-color .18s var(--dra-ease)}',
+    '.tk-quad-item:hover{background:color-mix(in srgb,var(--tk-tone) 12%,transparent)}',
+    '.tk-quad-none{color:var(--dra-text-dim);font-size:12px;padding:4px 8px}',
+
+    /* 工单：iOS 风格分组列表（嵌在大卡里，内圆角 = 外圆角 - 间距） */
+    '.tk-attn .dra-fold{border-radius:var(--dra-r-md);box-shadow:none;background:color-mix(in srgb,var(--dra-surface-2) 55%,transparent);backdrop-filter:none;-webkit-backdrop-filter:none}',
+    '.tk-attn .dra-fold-sum{border-radius:var(--dra-r-md)}',
+    '.tk-ios{border:1px solid var(--dra-border);border-radius:var(--dra-r-md);background:color-mix(in srgb,var(--dra-surface-1) 70%,transparent);overflow:hidden}',
+    '.tk-ios-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;min-height:44px}',
+    '.tk-ios-row+.tk-ios-row{border-top:1px solid var(--dra-border)}',
+    '.tk-ios-row .dra-hint{margin-left:auto}',
+
+    /* 派发表单：抬高的玻璃卡，模板条是胶囊组，主按钮是全屏唯一的渐变 */
+    '.tk-dispatch{position:relative;box-shadow:var(--dra-hl),var(--dra-elev-2);border-color:color-mix(in srgb,var(--dra-accent) 24%,var(--dra-border))}',
+    '.tk-dispatch::before{content:"";position:absolute;left:24px;right:24px;top:0;height:2px;border-radius:var(--dra-r-pill);background:var(--dra-aurora);opacity:.75}',
+    '.tk-tplbar{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}',
+    '.tk-tpl{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:4px 6px 4px 16px;border:1px solid var(--dra-border);border-radius:var(--dra-r-pill);background:color-mix(in srgb,var(--dra-surface-1) 72%,transparent);box-shadow:inset 0 1px 3px color-mix(in srgb,var(--dra-bg) 70%,transparent)}',
+    '.tk-tpl .dra-field{flex:1 1 240px;flex-direction:row;align-items:center;gap:10px}',
+    '.tk-tpl .dra-field-label{white-space:nowrap;font-weight:600}',
+    '.tk-tpl .dra-select{border:0;background:transparent;box-shadow:none;min-height:30px}',
+    '.tk-tpl .dra-select:focus{box-shadow:none}',
+    '.tk-tpl-btns{display:flex;gap:4px;flex-wrap:wrap}',
+    '.tk-tpl-msg{padding-left:16px}',
+    '.tk-adv{margin-top:12px}.tk-adv .dra-fold{border-radius:var(--dra-r-md);box-shadow:none;background:color-mix(in srgb,var(--dra-surface-2) 45%,transparent);backdrop-filter:none;-webkit-backdrop-filter:none}.tk-adv .dra-fold-sum{border-radius:var(--dra-r-md)}',
+    '.tk-form-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:16px}',
+    '.tk-submit{min-height:40px;padding:8px 28px;font-size:14px;border-radius:var(--dra-r-pill)}',
+    '.tk-form-note{margin-top:8px}',
+    '.tk-split{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:14px;align-items:start}',
+    '.tk-detail-col{position:sticky;top:8px;display:flex;flex-direction:column;max-height:calc(100vh - 24px)}',
+    '.tk-detail{display:flex;flex-direction:column;min-height:0}.tk-detail .dra-card-body{overflow:auto;min-height:0}',
+
+    /* 任务列表：每行是一块圆角瓷砖；运行中的行有旋转的极光描边和带扫光的进度槽 */
+    '.tk-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}',
+    '.tk-group{margin:8px 2px 0;font-size:12px;color:var(--dra-text-dim);font-weight:600}',
+    '.tk-row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:11px 14px;border-radius:var(--dra-r-md)}',
+    '.tk-row.tk-calm{border:1px solid var(--dra-border);background:var(--dra-sheen),color-mix(in srgb,var(--dra-surface-2) 70%,transparent);box-shadow:var(--dra-hl);transition:border-color .2s var(--dra-ease),box-shadow .2s var(--dra-ease)}',
+    '.tk-row.tk-calm:hover{border-color:var(--dra-border-strong)}',
+    '.tk-row.tk-raised{border-color:color-mix(in srgb,var(--dra-warn) 55%,transparent);background:linear-gradient(90deg,color-mix(in srgb,var(--dra-warn) 14%,transparent),transparent 65%),var(--dra-sheen),var(--dra-surface-2);box-shadow:var(--dra-hl),var(--dra-elev-2),inset 4px 0 0 var(--dra-warn)}',
+    '.tk-row.sel{box-shadow:var(--dra-hl),var(--dra-shadow),0 0 0 2px color-mix(in srgb,var(--dra-accent) 60%,transparent)}',
+    '.tk-row-main{flex:1 1 280px;min-width:0;display:flex;flex-direction:column;gap:4px;text-align:left;background:none;border:0;border-radius:var(--dra-r-sm);color:var(--dra-text);font:inherit;cursor:pointer;padding:0}',
+    '.tk-row-title{display:flex;gap:8px;align-items:center;flex-wrap:wrap}',
+    '.tk-goal{font-weight:600;font-size:14px;letter-spacing:-.01em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}',
+    '.tk-row-sub{display:flex;gap:4px 12px;flex-wrap:wrap;font-size:12px;color:var(--dra-text-dim)}',
     '.tk-row-line{font-size:12px;color:var(--dra-text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-    '.tk-row-acts{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}',
-    '.tk-pre{margin:0;padding:8px 10px;background:var(--dra-surface-2);border:1px solid var(--dra-border);border-radius:var(--dra-r-sm);font-family:var(--dra-mono);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto}',
-    '.tk-sec{margin:12px 0 4px;font-size:12px;color:var(--dra-text-dim);font-weight:600}',
-    '.tk-final{display:flex;gap:8px;align-items:center;justify-content:space-between;padding:3px 0}',
+    '.tk-stall{color:var(--dra-warn)}.tk-stall::before{content:"▲ "}',
+    '.tk-row-acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;flex:none}',
+    '.tk-approve{border-color:color-mix(in srgb,var(--dra-ok) 55%,transparent);color:var(--dra-ok);background:color-mix(in srgb,var(--dra-ok) 14%,var(--dra-surface-2));font-weight:600}',
+    '.tk-approve::before{content:"✓"}.tk-reject::before{content:"✕"}',
+    '.tk-track{display:block;flex:1 0 100%;height:8px;border-radius:var(--dra-r-pill);background:color-mix(in srgb,var(--dra-bg) 55%,var(--dra-surface-1));box-shadow:inset 0 1px 3px color-mix(in srgb,var(--dra-bg) 80%,transparent);overflow:hidden}',
+    '.tk-track-fill{display:block;width:100%;height:100%;border-radius:var(--dra-r-pill);background:var(--dra-aurora)}',
+    '.tk-track.stalled .tk-track-fill{background:color-mix(in srgb,var(--dra-warn) 70%,transparent)}',
+
+    /* 详情：抬高的玻璃面板，打开时回弹进入 */
+    '.tk-detail{box-shadow:var(--dra-hl),var(--dra-elev-2);border-color:color-mix(in srgb,var(--dra-accent) 30%,var(--dra-border))}',
+    '.tk-detail .tk-track{margin:2px 0 10px}',
+    '.tk-pre{margin:0;padding:10px 12px;background:color-mix(in srgb,var(--dra-surface-1) 70%,transparent);border:1px solid var(--dra-border);border-radius:var(--dra-r-xs);box-shadow:inset 0 1px 3px color-mix(in srgb,var(--dra-bg) 60%,transparent);font-family:var(--dra-mono);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;max-height:220px;overflow:auto}',
+    '.tk-sec{margin:14px 0 6px;font-size:12px;color:var(--dra-text-dim);font-weight:600}',
+    '.tk-final{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:6px 10px;margin-bottom:4px;border:1px solid var(--dra-border);border-radius:var(--dra-r-sm);background:color-mix(in srgb,var(--dra-surface-2) 55%,transparent)}',
     '.tk-final-path{flex:1;min-width:0;font-family:var(--dra-mono);font-size:12px;overflow-wrap:anywhere}',
-    '.tk-final-meta{color:var(--dra-text-dim);font-size:12px;white-space:nowrap}',
-    '.tk-detail-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}',
+    '.tk-final-meta{color:var(--dra-text-dim);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}',
+    '.tk-detail-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}',
+
+    /* 分配台账：竖直时间线，一条细渐变脊线，每条记录一个按最终状态着色并带字形的节点 */
     '.tk-led-bar{display:flex;gap:10px;align-items:end;flex-wrap:wrap}.tk-led-bar .dra-field{min-width:200px}',
-    '.tk-led-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}',
-    '.tk-led-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:7px 4px;border-top:1px solid var(--dra-border)}.tk-led-row:first-child{border-top:0}',
-    '.tk-led-meta{display:flex;gap:10px;flex-wrap:wrap;align-items:center;flex:1;min-width:0;font-size:12px;color:var(--dra-text-dim)}',
+    '.tk-led-list{position:relative;list-style:none;margin:0;padding:0 0 0 32px;display:flex;flex-direction:column;gap:8px}',
+    '.tk-led-list::before{content:"";position:absolute;left:11px;top:8px;bottom:8px;width:2px;border-radius:var(--dra-r-pill);background:linear-gradient(180deg,var(--dra-accent),var(--dra-accent-2),var(--dra-accent-3));opacity:.6}',
+    '.tk-led-row{position:relative}',
+    '.tk-led-dot{position:absolute;left:-32px;top:9px;width:24px;height:24px;display:grid;place-items:center;border-radius:var(--dra-r-pill);font-size:11px;font-weight:700;color:var(--dra-text-dim);background:var(--dra-surface-1);border:2px solid color-mix(in srgb,var(--dra-text-dim) 60%,transparent);box-shadow:var(--dra-hl),0 2px 6px -1px color-mix(in srgb,var(--dra-bg) 70%,transparent)}',
+    '.tk-led-dot::before{content:"?"}',
+    '.tk-led-dot.ok{color:var(--dra-ok);border-color:var(--dra-ok)}.tk-led-dot.ok::before{content:"✓"}',
+    '.tk-led-dot.bad{color:var(--dra-danger);border-color:var(--dra-danger)}.tk-led-dot.bad::before{content:"✕"}',
+    '.tk-led-dot.warn{color:var(--dra-warn);border-color:var(--dra-warn)}.tk-led-dot.warn::before{content:"▲"}',
+    '.tk-led-dot.acc{color:var(--dra-accent);border-color:var(--dra-accent)}.tk-led-dot.acc::before{content:"●"}',
+    '.tk-led-body{display:flex;flex-wrap:wrap;gap:6px 12px;align-items:center;padding:9px 14px;border:1px solid var(--dra-border);border-radius:var(--dra-r-md);background:color-mix(in srgb,var(--dra-surface-2) 55%,transparent);box-shadow:var(--dra-hl)}',
+    '.tk-led-meta{display:flex;gap:4px 12px;flex-wrap:wrap;align-items:center;flex:1;min-width:0;font-size:12px;color:var(--dra-text-dim)}',
     '.tk-led-goal{flex-basis:100%;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
   ]
 
-  /* 象限 */
+  /* 象限：四块大玻璃块（字形 + 大号数字 + 名单）。「需要你」有内容时抬高。 */
   function Quadrants(p) {
     const q = tasksQuadrants(p.tasks)
-    const quad = (key, title, items) => h('div', { key, className: 'tk-quad', role: 'group', 'aria-label': title },
-      h('h4', { className: 'tk-quad-title' }, h('span', null, title), h('span', { className: 'tk-quad-count' }, items.length)),
-      items.length === 0
-        ? h('div', { className: 'tk-quad-none' }, '无')
-        : items.map((t) => h('button', {
-          key: t.taskId, type: 'button', className: 'tk-quad-item', title: t.goal || t.taskId, onClick: () => p.onSelect(t.taskId),
-        }, tasksQuadLabel(t, p.nodes))))
+    const quad = (key, title, items) => h('div', {
+      key, className: 'tk-quad ' + key + (items.length === 0 ? ' zero' : '') + (key === 'needs' && items.length ? ' hot' : ''), role: 'group', 'aria-label': title,
+    },
+    h('h4', { className: 'tk-quad-title' }, h('span', { className: 'tk-quad-glyph', 'aria-hidden': 'true' }), title),
+    h('div', { className: 'tk-quad-count' }, items.length),
+    h('div', { className: 'tk-quad-items' }, items.length === 0
+      ? h('div', { className: 'tk-quad-none' }, '无')
+      : items.map((t) => h('button', {
+        key: t.taskId, type: 'button', className: 'tk-quad-item', title: t.goal || t.taskId, onClick: () => p.onSelect(t.taskId),
+      }, tasksQuadLabel(t, p.nodes)))))
     return h('div', { className: 'tk-quads' },
       quad('needs', '需要你（待批准）', q.needsYou), quad('working', '执行中', q.working),
       quad('blocked', '中断 · 失败', q.blocked), quad('done', '最近完成', q.done))
@@ -469,10 +527,20 @@ export function createTasks(core) {
     const rows = tasksAttentionRows(p.tickets)
     if (rows.length === 0) return null
     return h(Fold, { title: tasksTicketText.title, badge: rows.length, open: rows.some((r) => r.stage === 'person') },
-      rows.map((r) => h('div', { key: r.ticket.ticketId, className: 'dra-row' },
+      h('div', { className: 'tk-ios' }, rows.map((r) => h('div', { key: r.ticket.ticketId, className: 'tk-ios-row' },
         h('span', { className: 'dra-mono' }, r.ticket.ticketId),
         h(Badge, { tone: r.stage === 'person' ? 'warn' : '' }, tasksTicketLabel(r)),
-        h('span', { className: 'dra-hint' }, r.ticket.hasExecutor === true ? tasksTicketText.withExecutor : tasksTicketText.withoutExecutor))))
+        h('span', { className: 'dra-hint' }, r.ticket.hasExecutor === true ? tasksTicketText.withExecutor : tasksTicketText.withoutExecutor)))))
+  }
+
+  /* 进度槽：没有百分比，所以是「不确定」进度——只有运行中的任务有，带扫光；停滞时不扫光、变琥珀。 */
+  function Track(p) {
+    const t = p.task
+    if (!t || t.status !== 'running') return null
+    const stalled = tasksStallLabel(t) !== ''
+    return h('span', {
+      className: 'tk-track' + (stalled ? ' stalled' : ''), role: 'progressbar', 'aria-label': '任务进行中（不确定进度）', 'aria-valuetext': tasksProgressLine(t) || (stalled ? '运行中，暂无更新' : '运行中'),
+    }, h('span', { className: 'tk-track-fill' + (stalled ? '' : ' dra-shimmer') }))
   }
 
   /* 任务行：整行主体是一个按钮（键盘可达），动作按钮是它的兄弟，不嵌套。 */
@@ -487,7 +555,8 @@ export function createTasks(core) {
     const act = (a, label, busyLabel, cls) => h('button', {
       key: a, type: 'button', className: 'dra-btn sm' + (cls ? ' ' + cls : ''), disabled: busy(a), onClick: () => p.onAct(t.taskId, a),
     }, busy(a) ? busyLabel : label)
-    return h('li', { className: 'tk-row' + (p.selected ? ' sel' : '') },
+    const tone = t.status === 'running' && !stall ? ' dra-live' : ' tk-calm' + (t.status === 'pending_approval' ? ' tk-raised' : '')
+    return h('li', { className: 'tk-row' + tone + (p.selected ? ' sel' : '') },
       h('button', { type: 'button', className: 'tk-row-main', 'aria-current': p.selected ? 'true' : undefined, onClick: () => p.onSelect(t.taskId) },
         h('span', { className: 'tk-row-title' },
           h('span', { className: 'tk-goal', title: t.goal }, t.goal || '(无目标)'),
@@ -496,17 +565,18 @@ export function createTasks(core) {
         h('span', { className: 'tk-row-sub' },
           h('span', { className: 'dra-mono' }, coreShortId(t.taskId)),
           h('span', null, tasksNodeName(p.nodes, t.nodeId)),
-          h('span', null, (active ? '已跑 ' : '耗时 ') + coreFmtDur(dur)),
-          h('span', null, coreFmtTime(t.updatedAt || t.createdAt)),
+          h('span', { className: 'tk-dur' }, (active ? '已跑 ' : '耗时 ') + coreFmtDur(dur)),
+          h('span', { className: 'tk-dur' }, coreFmtTime(t.updatedAt || t.createdAt)),
           t.changedCount ? h('span', null, '改动 ' + t.changedCount) : null),
         line ? h('span', { className: 'tk-row-line', title: line }, '最近：' + line) : null,
         ev ? h('span', { className: 'dra-hint' }, ev) : null,
-        stall ? h('span', { className: 'dra-hint' }, stall) : null),
+        stall ? h('span', { className: 'dra-hint tk-stall' }, stall) : null),
       h('div', { className: 'tk-row-acts' },
         active ? act('cancel', '取消', '取消中…') : null,
-        t.status === 'pending_approval' ? act('approve', '批准', '批准中…') : null,
-        t.status === 'pending_approval' ? act('reject', '拒绝', '拒绝中…') : null,
-        t.status === 'completed' ? act('pull', '拉取', '拉取中…') : null))
+        t.status === 'pending_approval' ? act('approve', '批准', '批准中…', 'tk-approve') : null,
+        t.status === 'pending_approval' ? act('reject', '拒绝', '拒绝中…', 'danger tk-reject') : null,
+        t.status === 'completed' ? act('pull', '拉取', '拉取中…') : null),
+      h(Track, { task: t }))
   }
 
   function TaskList(p) {
@@ -551,7 +621,7 @@ export function createTasks(core) {
       t ? h(Badge, { tone: tasksStatusTone(t.status) }, tasksStatusText(t.status)) : null,
       h('span', { className: 'dra-spacer' }),
       h('button', { type: 'button', className: 'dra-btn sm', onClick: p.onClose }, '收起'))
-    const shell = (t, children) => h('section', { className: 'dra-card', 'aria-label': '任务详情', tabIndex: -1, ref: p.detailRef },
+    const shell = (t, children) => h('section', { className: 'dra-card tk-detail dra-pop', 'aria-label': '任务详情', tabIndex: -1, ref: p.detailRef },
       h('div', { className: 'dra-card-head' }, head(t)),
       h('div', { className: 'dra-card-body' }, children))
 
@@ -580,14 +650,15 @@ export function createTasks(core) {
 
     return shell(t, [
       d.error ? h('div', { key: 'stale', className: 'dra-hint dra-warn', role: 'status' }, '刷新失败：' + d.error + '（下面是上一次读到的内容）') : null,
+      h(Track, { key: 'track', task: t }),
       h('dl', { key: 'kv', className: 'dra-kv' },
         h('dt', null, '任务 ID'), h('dd', { className: 'dra-mono' }, t.taskId),
         h('dt', null, '机器'), h('dd', null, tasksNodeName(p.nodes, t.nodeId) + (active && t.nodeOnline === false ? '（当前离线）' : ''), ' ', h('span', { className: 'dra-mono dra-hint' }, coreShortId(t.nodeId, 16))),
         h('dt', null, '模式'), h('dd', null, (t.mode || '—') + (t.approval === 'manual' ? ' · 需审批' : '')),
-        h('dt', null, '创建'), h('dd', null, coreFmtTime(t.createdAt)),
-        h('dt', null, '开始'), h('dd', null, coreFmtTime(t.startedAt)),
-        h('dt', null, '结束'), h('dd', null, coreFmtTime(t.endedAt)),
-        h('dt', null, active ? '已跑' : '耗时'), h('dd', null, coreFmtDur(dur)),
+        h('dt', null, '创建'), h('dd', { className: 'tk-dur' }, coreFmtTime(t.createdAt)),
+        h('dt', null, '开始'), h('dd', { className: 'tk-dur' }, coreFmtTime(t.startedAt)),
+        h('dt', null, '结束'), h('dd', { className: 'tk-dur' }, coreFmtTime(t.endedAt)),
+        h('dt', null, active ? '已跑' : '耗时'), h('dd', { className: 'tk-dur' }, coreFmtDur(dur)),
         t.exit ? h('dt', null, '退出码') : null,
         t.exit ? h('dd', { className: 'dra-mono' }, String(t.exit.code) + (t.exit.code === 0 ? '（成功）' : '（非 0）') + (t.exit.timedOut ? ' · 超时' : '') + (t.exit.aborted ? ' · 中止' : '')) : null,
         ev ? h('dt', null, '取消证据') : null, ev ? h('dd', null, ev) : null,
@@ -598,8 +669,8 @@ export function createTasks(core) {
       h('div', { key: 'goal', className: 'tk-pre' }, t.goal || '(无目标)'),
       h('div', { key: 'acts', className: 'tk-detail-acts' },
         active ? h('button', { type: 'button', className: 'dra-btn sm', disabled: busy('cancel'), onClick: () => p.onAct(t.taskId, 'cancel') }, busy('cancel') ? '取消中…' : '取消任务') : null,
-        t.status === 'pending_approval' ? h('button', { type: 'button', className: 'dra-btn sm primary', disabled: busy('approve'), onClick: () => p.onAct(t.taskId, 'approve') }, busy('approve') ? '批准中…' : '批准') : null,
-        t.status === 'pending_approval' ? h('button', { type: 'button', className: 'dra-btn sm danger', disabled: busy('reject'), onClick: () => p.onAct(t.taskId, 'reject') }, busy('reject') ? '拒绝中…' : '拒绝') : null,
+        t.status === 'pending_approval' ? h('button', { type: 'button', className: 'dra-btn sm tk-approve', disabled: busy('approve'), onClick: () => p.onAct(t.taskId, 'approve') }, busy('approve') ? '批准中…' : '批准') : null,
+        t.status === 'pending_approval' ? h('button', { type: 'button', className: 'dra-btn sm danger tk-reject', disabled: busy('reject'), onClick: () => p.onAct(t.taskId, 'reject') }, busy('reject') ? '拒绝中…' : '拒绝') : null,
         finals.length ? pullBtn('拉取全部成品（' + finals.length + '）', undefined, 'pull-all') : null),
       finals.length && !pull.enabled ? h('div', { key: 'nopull', className: 'dra-hint dra-warn' }, pull.reason) : null,
       summary ? h('div', { key: 'sum-h', className: 'tk-sec' }, '摘要') : null,
@@ -645,8 +716,9 @@ export function createTasks(core) {
       p.tplMsg ? h('span', { key: 'msg', className: 'dra-hint', role: 'status' }, p.tplMsg) : null,
     ].filter(Boolean)
 
-    return h(Card, { title: '派发任务', sub: '主机 → 选中的机器，由那台机器在本地执行' },
-      h('div', { className: 'tk-tpl' },
+    return h(Card, { className: 'tk-dispatch', title: '派发任务', sub: '主机 → 选中的机器，由那台机器在本地执行' },
+      h('div', { className: 'tk-tplbar' },
+        h('div', { className: 'tk-tpl' },
         h(Field, { label: '模板' },
           h('select', {
             className: 'dra-select', value: f.templateId || '', disabled: p.tplBusy, title: tpl.file ? '模板存于 ' + tpl.file : '',
@@ -662,7 +734,7 @@ export function createTasks(core) {
           h('button', {
             type: 'button', className: 'dra-btn sm', disabled: p.tplBusy || p.dispatching || !f.templateId,
             title: f.templateId ? '删除当前选中的模板' : '先在下拉框里选一条模板', onClick: p.onTplDelete,
-          }, '删除模板')),
+          }, '删除模板'))),
         tplHints.length ? h('div', { className: 'dra-row tk-tpl-msg' }, tplHints) : null),
       h('div', { className: 'dra-form' },
         h(Field, { label: '目标机器' },
@@ -678,7 +750,7 @@ export function createTasks(core) {
           h('textarea', {
             className: 'dra-textarea', value: f.goal, placeholder: '例如：运行测试并修复失败的用例；或执行 npm run build 并汇报结果', onChange: set('goal'),
           }))),
-      h('div', { style: { marginTop: 10 } },
+      h('div', { className: 'tk-adv' },
         h(Fold, { title: '高级选项' },
           h('div', { className: 'dra-form' },
             h(Field, { label: '工作区（副机 roots 内）', hint: '留空 = 副机默认工作区' },
@@ -717,11 +789,11 @@ export function createTasks(core) {
               '需要先审批再派给副机')))),
       h('div', { className: 'tk-form-actions' },
         h('button', {
-          type: 'button', className: 'dra-btn primary', disabled: p.dispatching || !!problem, 'aria-describedby': problem ? 'tk-problem' : undefined, onClick: p.onDispatch,
+          type: 'button', className: 'dra-btn primary tk-submit' + (p.dispatching ? ' dra-shimmer' : ''), disabled: p.dispatching || !!problem, 'aria-describedby': problem ? 'tk-problem' : undefined, onClick: p.onDispatch,
         }, p.dispatching ? '派发中…' : '派发任务'),
         problem ? h('span', { id: 'tk-problem', className: 'dra-hint dra-warn' }, problem) : null,
         problem && online.length === 0 ? h('button', { type: 'button', className: 'dra-btn sm', onClick: () => p.go('machines') }, '去「机器」看看') : null),
-      h('div', { className: 'dra-hint', style: { marginTop: 6 } }, 'agent = 在副机新开独立会话；exec = 直接执行命令。两条路径都由副机本地执行。'))
+      h('div', { className: 'dra-hint tk-form-note' }, 'agent = 在副机新开独立会话；exec = 直接执行命令。两条路径都由副机本地执行。'))
   }
 
   /* 分配台账：只读。折叠区自己管开合（要知道何时第一次打开才去拉），节点筛选是 Screen 的 state，轮询不重置。 */
@@ -741,18 +813,20 @@ export function createTasks(core) {
     else if (stage === 'empty') body = h(Empty, null, p.node && rows.length ? tasksLedgerText.emptyNode : tasksLedgerText.empty)
     else {
       body = h('ul', { className: 'tk-led-list' }, shown.map((r) => h('li', { key: r.taskId, className: 'tk-led-row' },
-        h(Badge, { tone: r.tone }, r.statusText),
-        h('span', { className: 'tk-led-meta' },
-          h('span', null, coreFmtTime(r.at)),
-          h('span', null, r.nodeName),
-          h('span', { className: 'dra-mono', title: r.taskId }, r.shortId),
-          h(CopyBtn, { text: r.taskId, title: '复制任务 ID' }),
-          r.durationMs !== null ? h('span', null, '耗时 ' + coreFmtDur(r.durationMs)) : null,
-          r.older > 0 ? h('span', null, '另有 ' + r.older + ' 条更早记录') : null),
-        r.exists
-          ? h('button', { type: 'button', className: 'dra-btn sm', onClick: () => p.onSelect(r.taskId) }, '看详情')
-          : h('span', { className: 'dra-hint' }, tasksLedgerText.gone),
-        r.goal ? h('span', { className: 'tk-led-goal', title: r.goal }, r.goal) : null)))
+        h('span', { className: 'tk-led-dot ' + r.tone, 'aria-hidden': 'true' }),
+        h('div', { className: 'tk-led-body' },
+          h(Badge, { tone: r.tone }, r.statusText),
+          h('span', { className: 'tk-led-meta' },
+            h('span', { className: 'tk-dur' }, coreFmtTime(r.at)),
+            h('span', null, r.nodeName),
+            h('span', { className: 'dra-mono', title: r.taskId }, r.shortId),
+            h(CopyBtn, { text: r.taskId, title: '复制任务 ID' }),
+            r.durationMs !== null ? h('span', { className: 'tk-dur' }, '耗时 ' + coreFmtDur(r.durationMs)) : null,
+            r.older > 0 ? h('span', null, '另有 ' + r.older + ' 条更早记录') : null),
+          r.exists
+            ? h('button', { type: 'button', className: 'dra-btn sm', onClick: () => p.onSelect(r.taskId) }, '看详情')
+            : h('span', { className: 'dra-hint' }, tasksLedgerText.gone),
+          r.goal ? h('span', { className: 'tk-led-goal', title: r.goal }, r.goal) : null))))
     }
     return h('details', { className: 'dra-fold', open: l.open, onToggle: (e) => p.onToggle(e.target.open === true) },
       h('summary', { className: 'dra-fold-sum' }, h('span', null, tasksLedgerText.title),
@@ -790,7 +864,7 @@ export function createTasks(core) {
         h(Stat, { tone: 'ok', value: counts.done, label: '已完成' }),
         h(Stat, { tone: counts.failed ? 'bad' : '', value: counts.failed, label: '失败·中止·拒绝' })),
       showAttention ? h(Card, { key: 'attn', title: '需要你处理', sub: '待批准的任务、中断或失败的任务、待处理的工单' },
-        h('div', { className: 'dra-col' }, h(Quadrants, { tasks, nodes, onSelect: p.onSelect }), h(Tickets, { tickets: hub.tickets }))) : null,
+        h('div', { className: 'dra-col tk-attn' }, h(Quadrants, { tasks, nodes, onSelect: p.onSelect }), h(Tickets, { tickets: hub.tickets }))) : null,
       h(Dispatch, {
         key: 'dispatch', nodes, loading: hub.loading === true, form: p.form, onForm: p.onForm, modelCustom: p.modelCustom, onModelCustom: p.onModelCustom,
         dispatching: p.dispatching, onDispatch: p.onDispatch, tpl: p.tpl, tplMsg: p.tplMsg, tplBusy: p.tplBusy,
@@ -801,7 +875,7 @@ export function createTasks(core) {
           tasks, nodes, now: p.now, filter: p.filter, onFilter: p.onFilter, loading: hub.loading === true, purgeBusy: p.purgeBusy, onPurge: p.onPurge,
           busyKeys: p.busyKeys, selected: p.selected, onSelect: p.onSelect, onAct: p.onAct,
         }),
-        p.selected ? h('div', { className: 'tk-detail-col' }, h(Detail, {
+        p.selected ? h('div', { key: p.selected, className: 'tk-detail-col' }, h(Detail, {
           detail: p.detail, selected: p.selected, nodes, now: p.now, caps: hub.caps, busyKeys: p.busyKeys, onClose: p.onClose, onAct: p.onAct, detailRef: p.detailRef,
         })) : null),
       h(Ledger, {

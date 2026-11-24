@@ -466,7 +466,7 @@ function swap(anchor, replacement) {
 const PANEL_MUTATIONS = [
   ['[18]', 'lib/client.js', 'main 的 key 不再用 shellPanelKey', swap("name: 'main', key: shellPanelKey", "name: 'main', key: 'x'")],
   ['[17]', 'lib/client.js', 'sidebar.panellist 的 id 不再用 shellPanelKey', swap("name: 'sidebar.panellist', id: shellPanelKey", "name: 'sidebar.panellist', id: 'x'")],
-  ['[21]', 'src/panel/styles.js', '一个宿主变量没有了回退色', swap('var(--dra-host-dark-bg,#05070d)', 'var(--dra-host-dark-bg)')],
+  ['[21]', 'src/panel/styles.js', '一个宿主变量没有了回退色', swap('var(--dra-host-dark-bg,#070816)', 'var(--dra-host-dark-bg)')],
   ['[43]', 'src/panel/tasks.js', '任务屏的清理按钮没了', swap("'清理历史任务'", "'清理'")],
   ['[47]', 'src/panel/tasks.js', '派发表单的模型不再进请求体', (src) => src.replaceAll('body.model = String(f.model).trim()', "body.model = ''")],
   ['[73]', 'src/panel/tasks.js', '任务行不再区分「已跑」', swap("(active ? '已跑 ' : '耗时 ')", "'耗时 '")],

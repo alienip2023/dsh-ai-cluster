@@ -17,7 +17,7 @@ const mkHub = (nodes, extra = {}) => Object.assign({}, dataEmptyHub, {
   connection: { everConnected: true, byNode: [], recent: [] }, topology: topologyView(nodes),
 }, extra)
 const render = (hub, state) => { const core = makeCore({ state }); const f = createFleet(core); return expand(core.h(f.Overview, props(hub))) }
-const edges = (tree) => findAll(tree, (n) => n.type === 'line' && /^fl-edge /.test(n.props.className))
+const edges = (tree) => findAll(tree, (n) => n.type === 'path' && /^fl-edge /.test(n.props.className))
 const plain = (v) => JSON.parse(JSON.stringify(v))
 
 /* ── 布局与任务投影 ───────────────────────────────────────────────── */
@@ -77,15 +77,28 @@ test('idle fleet draws no flowing edge; a running task flows only on its own mac
   assert.deepEqual(running.map((e) => /st-running/.test(e.props.className)), [false, true, false]) // alpha, beta, gamma
 })
 
-test('motion is CSS only: running flow is the one animation, with a reduced-motion override and no SVG filters', () => {
+test('motion is CSS only: every animation names a real keyframe, nothing overrides reduced motion, and no <animate*> is rendered', () => {
   const css = fleetCss.join('')
-  assert.doesNotMatch(css, /drop-shadow|filter\s*:/)
-  const animated = fleetCss.filter((r) => /animation\s*:/.test(r.replace(/@media[^{]*\{.*\}$/, '')) && !/^@media/.test(r) && !/^@keyframes/.test(r))
-  assert.equal(animated.length, 1)
-  assert.match(animated[0], /^\.fl-edge\.st-running\{/)
-  assert.match(css, /@media \(prefers-reduced-motion:reduce\)\{\.fl-edge\.st-running\{animation:none!important\}\}/)
+  const keyframes = [...css.matchAll(/@keyframes ([\w-]+)/g)].map((m) => m[1])
+  const used = [...css.matchAll(/animation:([\w-]+)/g)].map((m) => m[1])
+  assert.ok(used.length >= 12, 'a lively scene has many animated layers')
+  for (const name of used) assert.ok(keyframes.includes(name) || name.startsWith('dra-'), 'missing @keyframes ' + name)
+  assert.doesNotMatch(css, /!important/) // styles.js owns the reduced-motion switch; modules must not fight it
+  const tree = render(mkHub(fleet(['a', 'b'])))
+  assert.equal(findAll(tree, (n) => /^animate/.test(String(n.type))).length, 0)
+  // a flying packet that cannot move is parked mid-path so the still picture keeps its meaning
+  assert.match(css, /@media \(prefers-reduced-motion:reduce\)\{\.fl-fly\{offset-distance:58%\}/)
   // narrow containers hide the picture and keep the table
-  assert.match(css, /@container \(max-width:520px\)\{\.fl-svg/)
+  assert.match(css, /@container \(max-width:520px\)\{\.fl-stage/)
+})
+
+test('no hard-coded colours: the scene styles use tokens and color-mix only', () => {
+  const css = fleetCss.join('')
+  assert.doesNotMatch(css, /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/)
+  assert.match(css, /var\(--dra-link-lan\)/)
+  for (const t of ['--dra-link-direct', '--dra-link-relay', '--dra-link-tunnel', '--dra-accent-2', '--dra-accent-3', '--dra-glass', '--dra-r-lg']) assert.ok(css.includes(t), t)
+  assert.doesNotMatch(css, /translateY/) // cards do not hop on hover
+  assert.match(css, /\.dra-light \.fl-stage\{/) // a dedicated light stage
 })
 
 test('null rtt never renders a number or 0ms; a real 0 is still a value', () => {
@@ -125,7 +138,7 @@ test('relay box only when the relay is reported unreachable', () => {
   const down = render(mkHub(list, { relay: { reachable: false } }))
   assert.equal(hasRelay(down), 1)
   assert.match(texts(down).join(''), /中继：不可达/)
-  assert.ok(findAll(down, (n) => n.type === 'line' && /fl-edge down/.test(n.props.className)).length === 1)
+  assert.ok(findAll(down, (n) => n.type === 'path' && /fl-edge down/.test(n.props.className)).length === 1)
   const up = render(mkHub(list, { relay: { reachable: true } }))
   assert.equal(hasRelay(up), 0)
   assert.match(texts(up).join(''), /中继：上报可达/)
@@ -324,7 +337,8 @@ test('legend never claims "connected"; candidates are labelled unverified', () =
   const text = texts(render(mkHub(fleet(ids(5))))).join('')
   for (const w of ['已连接', '已建立', '在线链路', '网状已建立', '中继正常']) assert.ok(!text.includes(w), w)
   assert.match(text, /对等候选（服务端列出，未验证，不代表可用链路）/)
-  assert.match(text, /实线＝直连/)
+  assert.match(text, /颜色＝链路类别：局域网直连中继隧道未知/)
+  assert.match(text, /流动的光＝链路在线/)
   assert.ok(fleetCss.some((r) => r.startsWith('.fl-peer')))
 })
 

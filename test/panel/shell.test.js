@@ -584,7 +584,7 @@ test('css: every dra-/st- class used by core, shell and settings has a rule', as
   const missing = [...used].filter((c) => !hasRule(c)).sort()
   assert.deepEqual(missing, [], '用到的类必须有 CSS 规则：' + missing.join(' '))
   const sel = allRules.find((r) => /\.dra-tab\[aria-selected="true"\]/.test(r.selector) && !/:hover|:focus/.test(r.selector))
-  assert.ok(sel && /box-shadow:inset 0 -2px 0 var\(--dra-accent\)/.test(sel.body), '选中标签有 2px 底条，不只靠颜色')
+  assert.ok(sel && /box-shadow:[^;]*inset 0 -2px 0 var\(--dra-accent\)/.test(sel.body) && /background:/.test(sel.body), '选中标签有凸起的底面和 2px 底边，不只靠颜色')
 })
 
 test('css: no selector is defined twice (base + settings)', () => {
@@ -601,21 +601,21 @@ test('css: complete dark and light token sets with the exact palette and host-va
     assert.ok(t in dark, '暗色（.dra-root）缺 ' + t)
     assert.ok(t in light, '浅色（.dra-root.dra-light）缺 ' + t)
   }
-  const themeless = /^--dra-(r-|mono|sans|shadow$|border-strong$)/
+  const themeless = /^--dra-(r-|mono|sans|ease$|spring$|border-strong$)/
   const missing = Object.keys(dark).filter((k) => !themeless.test(k) && !(k in light))
   assert.deepEqual(missing, [], '浅色缺少：' + missing.join(' '))
   const want = {
-    '--dra-bg': ['#05070d', '#eef2f8'], '--dra-surface-1': ['#0b0e18', '#ffffff'], '--dra-surface-2': ['#111523', '#f4f7fc'],
-    '--dra-surface-3': ['#171d2e', '#e9eff8'], '--dra-text': ['#e0e6f0', '#17202f'], '--dra-text-dim': ['#8a98b5', '#4a5a73'],
-    '--dra-accent': ['#2ee6ff', '#1b6ef3'], '--dra-ok': ['#25e58c', '#1a9e6b'], '--dra-warn': ['#ffb547', '#b87010'],
-    '--dra-danger': ['#ff4d6e', '#c92b4a'], '--dra-mesh': ['#a78bfa', '#6d4fd6'],
+    '--dra-bg': ['#070816', '#eceffc'], '--dra-surface-1': ['#0f1130', '#ffffff'], '--dra-surface-2': ['#171a3c', '#f5f6fe'],
+    '--dra-surface-3': ['#202552', '#e8ebfa'], '--dra-text': ['#eef0ff', '#14162e'], '--dra-text-dim': ['#a9afdb', '#4a5080'],
+    '--dra-accent': ['#46e0ff', '#1d57ee'], '--dra-ok': ['#3df2b0', '#087a55'], '--dra-warn': ['#ffc552', '#8f5400'],
+    '--dra-danger': ['#ff6b88', '#c8203f'], '--dra-mesh': ['#b99cff', '#6a45e0'],
   }
   for (const [k, [d, l]] of Object.entries(want)) {
     assert.equal(hex(dark[k]), d, k + ' 暗色')
     assert.equal(hex(light[k]), l, k + ' 浅色')
   }
-  assert.match(dark['--dra-border'], /rgba\(120,165,255,\.14\)/)
-  assert.match(light['--dra-border'], /rgba\(30,60,110,\.16\)/)
+  assert.match(dark['--dra-border'], /rgba\(150,160,255,\.16\)/)
+  assert.match(light['--dra-border'], /rgba\(40,50,130,\.16\)/)
   for (const t of ['--dra-bg', '--dra-text', '--dra-accent', '--dra-surface-1']) {
     assert.match(dark[t], /^var\(--dra-host-dark-[a-z0-9-]+,\s*#([0-9a-f]{6}|[0-9a-f]{3})\)$/i, t + ' 暗色先查宿主变量再回退')
     assert.match(light[t], /^var\(--dra-host-light-[a-z0-9-]+,\s*#([0-9a-f]{6}|[0-9a-f]{3})\)$/i, t + ' 浅色先查宿主变量再回退')

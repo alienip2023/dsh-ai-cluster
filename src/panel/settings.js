@@ -465,6 +465,11 @@ export function settingsErrText(e) {
 
 export const settingsSteps = [['role', '选角色'], ['connect', '填连接信息'], ['review', '确认写入']]
 
+/** 角色卡上的大图标字形（纯装饰，aria-hidden）。 */
+export const settingsRoleGlyph = { hub: '◉', worker: '◌', both: '◎' }
+/** 体检行的状态字形：不只靠颜色。 */
+export const settingsStateGlyph = { ok: '✓', warn: '▲', bad: '✕' }
+
 /* ── 组件 ──────────────────────────────────────────────────────────── */
 
 export function createSettings(core) {
@@ -472,6 +477,9 @@ export function createSettings(core) {
 
   const patchOf = (setSt) => (o) => setSt((prev) => Object.assign({}, prev, o))
   const errHint = (errors, key, hint) => (errors[key] ? h('span', { className: 'st-err', role: 'alert' }, '✕ ' + errors[key]) : hint)
+  /** iOS 分组列表：每行「标签在左 / 值在右」，行间发丝线。rows = [[标签, 值, 额外 class?]]。 */
+  const factList = (rows) => h('dl', { className: 'st-group st-list' }, rows.map((r) => h('div', { key: r[0], className: 'st-row' },
+    h('dt', null, r[0]), h('dd', { className: r[2] || 'dra-wrap' }, r[1]))))
   const textInput = (value, onChange, extra) => h('input', Object.assign({
     className: 'dra-input dra-mono', type: 'text', value, autoComplete: 'off', spellCheck: false, onChange: (e) => onChange(e.target.value),
   }, extra))
@@ -491,11 +499,14 @@ export function createSettings(core) {
       h('legend', { className: 'dra-field-label' }, '这台机器的角色'),
       settingsRoleIds.map((id) => {
         const info = settingsRoleInfo[id]
-        return h('label', { key: id, className: 'st-role' + (p.value === id ? ' on' : '') },
-          h('input', { type: 'radio', name: 'st-role', value: id, checked: p.value === id, onChange: () => p.onChange(id) }),
+        const on = p.value === id
+        return h('label', { key: id, className: 'st-role' + (on ? ' on' : '') },
+          h('input', { type: 'radio', name: 'st-role', value: id, checked: on, onChange: () => p.onChange(id) }),
+          on ? h('span', { className: 'st-check dra-pop', 'aria-hidden': 'true' }, '✓') : null,
+          h('span', { className: 'st-role-glyph', 'aria-hidden': 'true' }, settingsRoleGlyph[id]),
           h('span', { className: 'st-role-body' },
             h('b', null, info.title, p.current === id ? h(Badge, { tone: 'acc' }, '当前角色') : null),
-            h('span', null, info.tagline),
+            h('span', { className: 'st-role-tag' }, info.tagline),
             h('span', { className: 'dra-hint' }, info.detail)))
       }))
   }
@@ -512,13 +523,13 @@ export function createSettings(core) {
     const rootsField = p.showNode ? h(Field, { label: '工作区 roots（每行一个，绝对路径）', wide: true, hint: errHint(errors, 'roots', '只有这些目录里的东西副机才能碰，请指定具体子目录，别写整个磁盘或家目录。目录不存在会自动创建。') },
       h('textarea', { className: 'dra-textarea dra-mono', value: f.roots, placeholder: settingsRootsExample(p.platform), spellCheck: false, 'aria-invalid': errors.roots ? 'true' : undefined, onChange: (e) => set('roots', e.target.value) })) : null
     return h('div', { className: 'dra-col' },
-      h('div', { className: 'dra-field' },
+      h('div', { className: 'dra-field st-group st-pad' },
         h('span', { className: 'dra-field-label' }, '连接方式'),
         h(Seg, { label: '连接方式', value: f.transportMode, options: [['relay', '中继（relay）'], ['direct', '直连（direct）']], onChange: (v) => set('transportMode', v) }),
         h('span', { className: 'dra-hint' }, direct
           ? (plan.role === 'worker' ? '直连：这台副机主动连主机，主机端口必须能被这里访问；主机在 NAT 后请改用中继。' : '直连：副机主动连这台主机，本机端口必须能被副机访问；在 NAT 后请改用中继。')
           : '中继：双方都连到同一个中继服务，主机或副机在 NAT 后也能用。需要中继地址和口令。')),
-      h('div', { className: 'dra-form' },
+      h('div', { className: 'dra-form st-group st-pad' },
         direct
           ? h(Field, { label: plan.hubUrlLabel + (plan.requireHubUrl ? ' · 必填' : ''), wide: true, hint: errHint(errors, 'hubUrl', plan.requireHubUrl ? '例：ws://主机IP:19387/api/remote-agent/node' : '例：http://192.168.1.10:19387') },
             textInput(f.hubUrl, (v) => set('hubUrl', v), { placeholder: plan.requireHubUrl ? 'ws://主机IP:19387/api/remote-agent/node' : 'http://192.168.1.10:19387', 'aria-invalid': errors.hubUrl ? 'true' : undefined }))
@@ -530,7 +541,7 @@ export function createSettings(core) {
             h(Field, { key: 'token', label: plan.tokenLabel, wide: true, hint: errHint(errors, 'token', '口令不会回显；留空表示沿用已设置的口令。') },
               h('input', { className: 'dra-input dra-mono', type: 'password', value: f.token, placeholder: tokenPlaceholder, autoComplete: 'new-password', 'aria-invalid': errors.token ? 'true' : undefined, onChange: (e) => set('token', e.target.value) })),
           ]),
-      direct && plan.role === 'worker' ? h('div', { className: 'dra-hint' }, '直连模式的入网口令由主机生成（主机面板 → 设置 → 入网口令），这里不写副机侧口令；可用配对码里的 pair 字段或 dsh-remote-setup 写入。') : null,
+      direct && plan.role === 'worker' ? h('div', { className: 'dra-hint st-foot' }, '直连模式的入网口令由主机生成（主机面板 → 设置 → 入网口令），这里不写副机侧口令；可用配对码里的 pair 字段或 dsh-remote-setup 写入。') : null,
       plan.rootsPrimary ? rootsField : null,
       h(Fold, { title: '高级：监听' + (p.showNode ? '与本机标识' : ''), open: advErr },
         h('div', { className: 'dra-form' },
@@ -601,13 +612,15 @@ export function createSettings(core) {
       const warnings = Array.isArray(w.warnings) ? w.warnings : []
       return h('div', { className: 'dra-col st-setup' },
         h(StepBar, { step: 'done' }),
-        h(Card, { title: '写入完成', sub: '角色：' + settingsRoleName(w.role || st.role) },
-          h('h2', { className: 'st-head', tabIndex: -1, ref: headRef }, '配置已写入'),
+        h(Card, { title: '写入完成', sub: '角色：' + settingsRoleName(w.role || st.role), className: 'st-summary' },
+          h('div', { className: 'st-seal', 'aria-hidden': 'true' }, '✓'),
+          h('h2', { className: 'st-head st-center', tabIndex: -1, ref: headRef }, '配置已写入'),
           h(Banner, { tone: 'ok', title: '重启 DSH 生效' }, '配置改动不会热加载：重启 DSH 之后这台机器才按新配置运行。'),
-          h('dl', { className: 'dra-kv' },
-            h('dt', null, '配置文件'), h('dd', { className: 'dra-mono dra-wrap' }, w.file || '—', w.file ? h(CopyBtn, { label: '复制路径', text: w.file }) : null),
-            w.backup ? [h('dt', { key: 'bk' }, '备份'), h('dd', { key: 'bv', className: 'dra-mono dra-wrap' }, w.backup)] : null,
-            w.instanceFile ? [h('dt', { key: 'ik' }, '独立配置'), h('dd', { key: 'iv', className: 'dra-mono dra-wrap' }, w.instanceFile)] : null),
+          factList([
+            ['配置文件', [w.file || '—', w.file ? h(CopyBtn, { key: 'cp', label: '复制路径', text: w.file }) : null], 'dra-mono dra-wrap'],
+            w.backup ? ['备份', w.backup, 'dra-mono dra-wrap'] : null,
+            w.instanceFile ? ['独立配置', w.instanceFile, 'dra-mono dra-wrap'] : null,
+          ].filter(Boolean)),
           warnings.length ? h('ul', { className: 'st-warns' }, warnings.map((x, i) => h('li', { key: i, className: 'dra-warn' }, '▲ ' + String(x)))) : null,
           h('div', { className: 'dra-row' }, h('button', { type: 'button', className: 'dra-btn primary', onClick: () => p.onDone(st.written || {}) }, '知道了'))))
     }
@@ -629,7 +642,7 @@ export function createSettings(core) {
         h(StepBar, { step: 'connect' }),
         h(Card, { title: settingsRoleInfo[plan.role].title, sub: '怎么连、连谁' },
           head('填连接信息'),
-          plan.pair ? h('div', { className: 'st-pair' },
+          plan.pair ? h('div', { className: 'st-pair st-group st-pad' },
             h(Field, { label: '配对码（dshra1://…，整行粘贴即可）', wide: true, hint: '主机的「机器」屏里生成；粘贴后点「解析填入」，不用手抄地址。' },
               h('div', { className: 'dra-row' },
                 textInput(st.pair, (v) => patch({ pair: v }), { placeholder: 'dshra1://eyJ…' }),
@@ -645,9 +658,9 @@ export function createSettings(core) {
 
     return h('div', { className: 'dra-col st-setup' },
       h(StepBar, { step: 'review' }),
-      h(Card, { title: '确认写入', sub: settingsRoleName(st.role) },
+      h(Card, { title: '确认写入', sub: settingsRoleName(st.role), className: 'st-summary' },
         head('确认后写入配置'),
-        h('dl', { className: 'dra-kv' }, settingsReviewRows(st.role, st.form, cur).map((r) => [h('dt', { key: 'k' + r[0] }, r[0]), h('dd', { key: 'v' + r[0], className: 'dra-wrap' }, r[1])])),
+        factList(settingsReviewRows(st.role, st.form, cur)),
         h('p', { className: 'dra-hint' }, '将写入：', h('span', { className: 'dra-mono dra-wrap' }, setup.patchFile || 'profile 的 cordis.patch.yml'), '。写盘会先备份并校验；重启 DSH 后生效。'),
         st.error ? h(Banner, { tone: 'err', title: '写入失败' },
           h('div', { className: 'dra-mono dra-wrap' }, st.error.text), st.error.code ? h('div', { className: 'dra-hint' }, '错误码：' + st.error.code) : null,
@@ -663,7 +676,7 @@ export function createSettings(core) {
   function WorkerStats(p) {
     const w = p.status || {}
     const t = w.tasks || {}
-    return h('div', { className: 'dra-statbar' },
+    return h('div', { className: 'dra-statbar st-counters' },
       h(Stat, { value: w.online === true ? '在线' : '离线', label: '连接状态', tone: w.online === true ? 'ok' : 'bad' }),
       h(Stat, { value: String(t.running || 0), label: '运行中', tone: 'acc' }),
       h(Stat, { value: String(t.queued || 0), label: '排队中' }),
@@ -691,9 +704,9 @@ export function createSettings(core) {
       w.loading && !s ? h('div', { className: 'dra-hint' }, '读取副机状态…') : null,
       s ? h(WorkerStats, { status: s }) : null,
       s ? h(WorkerError, { status: s }) : null,
-      s ? h(Card, { title: '本机状态', sub: '副机 Worker', actions: p.actions },
-        h('dl', { className: 'dra-kv' }, settingsWorkerFacts(s).map((r) => [h('dt', { key: 'k' + r[0] }, r[0]), h('dd', { key: 'v' + r[0], className: 'dra-wrap' }, r[1])])),
-        p.hideHint ? null : h('p', { className: 'dra-hint' }, '任务在主机的面板上看；本机只负责执行，并显示连接与队列计数。')) : null)
+      s ? h(Card, { title: '本机状态', sub: '副机 Worker', actions: p.actions, className: 'st-sec' },
+        factList(settingsWorkerFacts(s)),
+        p.hideHint ? null : h('p', { className: 'dra-hint st-foot' }, '任务在主机的面板上看；本机只负责执行，并显示连接与队列计数。')) : null)
   }
 
   /* ── 连接配置卡（副机视图与设置抽屉共用） ───────────────────────── */
@@ -776,7 +789,7 @@ export function createSettings(core) {
       })
     }
 
-    const tokenLine = (label, on) => h('span', { className: 'st-tok' }, label + '：', h(Badge, { tone: on === true ? 'ok' : on === false ? 'warn' : '' }, on === true ? '已设置' : on === false ? '未设置' : '未知'))
+    const tokenLine = (label, on) => h('div', { key: label, className: 'st-row st-tok' }, label + '：', h(Badge, { tone: on === true ? 'ok' : on === false ? 'warn' : '' }, on === true ? '已设置' : on === false ? '未设置' : '未知'))
     const cfg = st.cfg
     const facts = cfg ? [
       ['拉取落地目录 uiPullRoot', cfg.uiPullRoot || '未设置（拉取产物功能关闭）'],
@@ -789,6 +802,7 @@ export function createSettings(core) {
     const persist = st.base && st.base.persist ? st.base.persist : null
 
     return h(Card, {
+      className: 'st-sec',
       title: '连接配置', sub: settingsRoleName(role) + (role ? '（' + role + '）' : ''),
       actions: [
         h(CopyBtn, { key: 'tpl', label: '复制配置模板', text: settingsConfigTemplate(role, form), title: '复制一段可贴进 cordis.patch.yml 的配置' }),
@@ -803,22 +817,24 @@ export function createSettings(core) {
         st.conflict ? h('div', { className: 'dra-row' }, h('button', { type: 'button', className: 'dra-btn danger', disabled: st.busy, onClick: replaceHandwritten }, '替换手写配置')) : null) : null,
       plan.hub ? h('div', { className: 'dra-hint' }, '在线节点上报的连接方式：' + (p.transportSummary && p.transportSummary.label ? p.transportSummary.label : '未知（暂无在线节点）')) : null,
       h(ConnectFields, { role, form, errors, set: setField, tokenSet: tokens.relay === null ? undefined : tokens.relay, platform, showNode: false }),
-      h('div', { className: 'st-toks' },
+      h('div', { className: 'st-group st-list st-toks' },
         tokenLine(role === 'worker' ? '接入口令' : '中继口令', tokens.relay),
         plan.hub ? tokenLine('入网口令（副机直连用）', tokens.node) : null,
-        plan.hub ? h('button', { type: 'button', className: 'dra-btn sm', disabled: st.rotating, onClick: rotate }, st.rotating ? '生成中…' : (tokens.node === true ? '重新生成入网口令' : '生成入网口令')) : null,
-        st.fresh ? h(CopyBtn, { label: '复制新口令', text: st.fresh, title: '复制刚生成的口令（不在界面显示）' }) : null),
+        plan.hub || st.fresh ? h('div', { key: 'acts', className: 'st-row st-acts' },
+          plan.hub ? h('button', { type: 'button', className: 'dra-btn sm', disabled: st.rotating, onClick: rotate }, st.rotating ? '生成中…' : (tokens.node === true ? '重新生成入网口令' : '生成入网口令')) : null,
+          st.fresh ? h(CopyBtn, { label: '复制新口令', text: st.fresh, title: '复制刚生成的口令（不在界面显示）' }) : null) : null),
       plan.hub && tokens.node === false ? h('div', { className: 'dra-hint dra-warn' }, '▲ 未设置入网口令：独立监听只能绑回环，副机连不上。生成口令后重启 DSH。') : null,
       st.rotateMsg ? h('div', { className: 'dra-hint ' + (st.rotateMsg.tone === 'ok' ? 'dra-ok' : 'dra-danger'), role: 'status' }, (st.rotateMsg.tone === 'ok' ? '✓ ' : '✕ ') + st.rotateMsg.text) : null,
       result.changed.length ? h('div', { className: 'dra-hint' }, '待保存的修改：' + result.changed.map((k) => settingsFieldLabels[k] || k).join('、')) : h('div', { className: 'dra-hint' }, '没有未保存的修改。'),
-      h('p', { className: 'dra-hint' }, '保存只发你改过的字段，写盘前先备份、写后校验；重启 DSH 后生效。'),
+      h('p', { className: 'dra-hint st-foot' }, '保存只发你改过的字段，写盘前先备份、写后校验；重启 DSH 后生效。'),
       cfg ? h(Fold, { title: '其它生效配置（只读）', badge: facts.length + ' 项' },
-        h('dl', { className: 'dra-kv' }, facts.map((r) => [h('dt', { key: 'k' + r[0] }, r[0]), h('dd', { key: 'v' + r[0], className: 'dra-wrap' }, r[1])])),
+        factList(facts),
         h('div', { className: 'dra-hint' }, '这些值要在 profile 的 cordis.patch.yml 里改。')) : null,
       h(Fold, { title: '配置文件与持久化' },
-        h('dl', { className: 'dra-kv' },
-          h('dt', null, '配置文件'), h('dd', { className: 'dra-mono dra-wrap' }, file || '—', file ? h(CopyBtn, { label: '复制路径', text: file }) : null),
-          persist ? [h('dt', { key: 'pk' }, '独立配置'), h('dd', { key: 'pv' }, persist.instanceFile === true ? '已保存（DSH 重写 patch 文件也丢不了）' + (persist.instanceRole ? '，角色 ' + persist.instanceRole : '') : '未保存：只靠 patch 文件，DSH 重写它时配置可能丢失')] : null))) : null)
+        factList([
+          ['配置文件', [file || '—', file ? h(CopyBtn, { key: 'cp', label: '复制路径', text: file }) : null], 'dra-mono dra-wrap'],
+          persist ? ['独立配置', persist.instanceFile === true ? '已保存（DSH 重写 patch 文件也丢不了）' + (persist.instanceRole ? '，角色 ' + persist.instanceRole : '') : '未保存：只靠 patch 文件，DSH 重写它时配置可能丢失'] : null,
+        ].filter(Boolean)))) : null)
   }
 
   /* ── 副机视图 ───────────────────────────────────────────────────── */
@@ -864,6 +880,7 @@ export function createSettings(core) {
       })
     }
     return h(Card, {
+      className: 'st-sec',
       title: '环境体检', sub: sum.text,
       actions: [
         h(Badge, { key: 'sum', tone: sum.tone }, sum.text),
@@ -874,19 +891,20 @@ export function createSettings(core) {
     },
     st.phase === 'error' ? h(Banner, { tone: 'err', title: '体检请求失败' }, h('div', { className: 'dra-mono dra-wrap' }, st.error)) : null,
     st.phase === 'loading' && !st.data ? h('div', { className: 'dra-hint' }, '正在体检…') : null,
-    h('ul', { className: 'st-items' }, items.map((it) => h('li', { key: it.id, className: 'st-item' },
-      h(Badge, { tone: it.tone }, it.state),
+    items.length ? h('ul', { className: 'st-group st-list st-stagger' }, items.map((it) => h('li', { key: it.id, className: 'st-row st-item' },
+      h('span', { className: 'st-state ' + it.tone },
+        h('span', { className: 'st-glyph dra-pop', 'aria-hidden': 'true' }, settingsStateGlyph[it.tone] || '●'), it.state),
       h('div', { className: 'st-item-body' },
-        h('div', { className: 'dra-row' }, h('span', null, it.label), it.autoFix ? h(Badge, { tone: 'warn' }, '可自动修复') : null),
+        h('div', { className: 'dra-row' }, h('span', { className: 'st-item-label' }, it.label), it.autoFix ? h(Badge, { tone: 'warn' }, '可自动修复') : null),
         it.detail ? h('div', { className: 'dra-hint dra-wrap' }, it.detail) : null,
-        !it.ok && it.fix ? h('div', { className: 'dra-row' }, h('span', { className: 'dra-hint dra-wrap st-fix' }, it.fix), h(CopyBtn, { label: '复制修法', text: it.fix, title: '复制这条修法' })) : null)))),
-    st.preview ? h('div', { className: 'st-preview' },
+        !it.ok && it.fix ? h('div', { className: 'dra-row' }, h('span', { className: 'dra-hint dra-wrap st-fix' }, it.fix), h(CopyBtn, { label: '复制修法', text: it.fix, title: '复制这条修法' })) : null)))) : null,
+    st.preview ? h('div', { className: 'st-preview dra-pop' },
       h('div', { className: 'dra-field-label' }, '修复预览：将修改 ' + (st.preview.file || '配置文件')),
       st.preview.fixable.length ? h('ul', { className: 'st-items' }, st.preview.fixable.map((x) => h('li', { key: x.id, className: 'st-item' }, h(Badge, { tone: 'warn' }, '将修改'), h('div', { className: 'st-item-body' }, h('div', null, x.change || x.label), x.note ? h('div', { className: 'dra-hint' }, x.note) : null)))) : h('div', { className: 'dra-hint' }, '没有可以一键修复的项。'),
       st.preview.skipped.length ? h('ul', { className: 'st-items' }, st.preview.skipped.map((x) => h('li', { key: x.id, className: 'st-item' }, h(Badge, null, '需人工'), h('div', { className: 'st-item-body' }, h('div', null, x.label), x.reason ? h('div', { className: 'dra-hint' }, x.reason) : null)))) : null,
       st.preview.backups.length ? h('div', { className: 'dra-hint' }, '最近备份：' + st.preview.backups.map((b) => b.name + (b.at ? '（' + coreFmtTime(b.at) + '）' : '')).join('；')) : null) : null,
     st.msg ? h(Banner, { tone: st.msg.tone, title: st.msg.text }) : null,
-    h('p', { className: 'dra-hint' }, '一键修复只改托管块并备份，写后校验；不会改动其它插件配置。'))
+    h('p', { className: 'dra-hint st-foot' }, '一键修复只改托管块并备份，写后校验；不会改动其它插件配置。'))
   }
 
   function ChannelCard(p) {
@@ -894,32 +912,36 @@ export function createSettings(core) {
     const sum = settingsLinkSummary(hub.link)
     const rows = settingsLinkRows(hub.link, hub.nodes)
     const lv = settingsListenerView(hub.caps, p.now)
-    return h(Card, { title: '通道与审计', sub: '全局视图；每台机器的状态在「机器」屏' },
+    return h(Card, { title: '通道与审计', sub: '全局视图；每台机器的状态在「机器」屏', className: 'st-sec' },
       h('div', { className: 'dra-col' },
         h('div', null,
           h('div', { className: 'dra-field-label' }, '可靠通道（待送达消息）'),
-          h('p', { className: 'dra-hint' }, '主机与节点之间的协作消息先写进磁盘再发送，对方就绪后自动重发，没有超时、不会丢；对方离线多久都会留着。'),
+          h('p', { className: 'dra-hint st-foot' }, '主机与节点之间的协作消息先写进磁盘再发送，对方就绪后自动重发，没有超时、不会丢；对方离线多久都会留着。'),
           hub.loading ? h('div', { className: 'dra-hint' }, '读取中…') : h('div', { className: 'dra-row' }, h(Badge, { tone: sum.available ? (sum.total === 0 ? 'ok' : 'warn') : '' }, sum.available ? (sum.total === 0 ? '无积压' : '有积压') : '不可用'), h('span', null, sum.text)),
-          rows.length ? h('ul', { className: 'st-items' }, rows.map((r) => h('li', { key: r.nodeId, className: 'st-item' },
+          rows.length ? h('ul', { className: 'st-group st-list st-stagger' }, rows.map((r) => h('li', { key: r.nodeId, className: 'st-row st-item st-node' },
+            h('span', { className: 'dra-dot warn st-park', role: 'img', 'aria-label': '消息在等对方就绪', title: '消息在等对方就绪' }),
             h(Badge, { tone: r.online ? 'ok' : 'warn' }, r.online ? '在线' : '离线'),
             h('div', { className: 'st-item-body' },
               h('div', null, (r.name ? r.name + ' · ' : '') + r.nodeId),
               h('div', { className: 'dra-hint' }, '待送达 ' + r.pending + ' 条 · 最久等了 ' + r.oldestText + ' · 已重试 ' + r.tries + ' 次'),
-              r.types.length ? h('div', { className: 'dra-hint dra-mono' }, r.types.map((t) => t.type + ' ×' + t.count).join('  ')) : null)))) : null),
+              r.types.length ? h('div', { className: 'dra-hint dra-mono' }, r.types.map((t) => t.type + ' ×' + t.count).join('  ')) : null),
+            h('span', { className: 'st-count', 'aria-hidden': 'true', title: '待送达条数' }, r.pending)))) : null),
         lv.listener || lv.reach ? h('div', null,
           h('div', { className: 'dra-field-label' }, '监听与可达性'),
-          lv.listener ? h('div', { className: 'st-line' }, h(Badge, { tone: lv.listener.tone }, lv.listener.label), h('span', { className: 'dra-hint dra-wrap' }, lv.listener.detail)) : null,
-          lv.reach ? h('div', { className: 'st-line' }, h(Badge, { tone: lv.reach.tone }, lv.reach.label), h('span', { className: 'dra-hint dra-wrap' }, [lv.reach.where, lv.reach.detail].filter(Boolean).join(' · '))) : null) : null))
+          h('div', { className: 'st-group st-list' },
+          lv.listener ? h('div', { className: 'st-row st-line' }, h(Badge, { tone: lv.listener.tone }, lv.listener.label), h('span', { className: 'dra-hint dra-wrap' }, lv.listener.detail)) : null,
+          lv.reach ? h('div', { className: 'st-row st-line' }, h(Badge, { tone: lv.reach.tone }, lv.reach.label), h('span', { className: 'dra-hint dra-wrap' }, [lv.reach.where, lv.reach.detail].filter(Boolean).join(' · '))) : null)) : null))
   }
 
   function RoleCard(p) {
     const plan = p.plan
     const info = settingsRoleInfo[settingsRolePlan(p.role).role]
-    return h(Card, { title: '角色', actions: h('button', { type: 'button', className: 'dra-btn sm', onClick: p.onSwitchRole }, '切换角色') },
-      h('div', { className: 'dra-row' }, h(Badge, { tone: 'acc' }, settingsRoleName(p.role)), info ? h('span', null, info.tagline) : null),
-      info ? h('p', { className: 'dra-hint' }, info.detail) : null,
-      h('p', { className: 'dra-hint' }, '切换会重写 profile 的 cordis.patch.yml（先备份），重启 DSH 后生效。'),
-      plan && plan.both ? h('div', { className: 'st-both' }, h('div', { className: 'dra-field-label' }, '本机副机'), h(WorkerCard, { worker: p.worker, hideHint: true })) : null)
+    return h(Card, { className: 'st-sec', title: '角色', actions: h('button', { type: 'button', className: 'dra-btn sm', onClick: p.onSwitchRole }, '切换角色') },
+      h('div', { className: 'st-group st-list' },
+        h('div', { className: 'st-row' }, h('span', { className: 'st-row-label' }, '当前角色'), h('span', { className: 'dra-row' }, h(Badge, { tone: 'acc' }, settingsRoleName(p.role)), info ? h('span', null, info.tagline) : null))),
+      info ? h('p', { className: 'dra-hint st-foot' }, info.detail) : null,
+      h('p', { className: 'dra-hint st-foot' }, '切换会重写 profile 的 cordis.patch.yml（先备份），重启 DSH 后生效。'),
+      plan && plan.both ? h('div', { className: 'st-both' }, h('div', { className: 'st-sec-title' }, '本机副机'), h(WorkerCard, { worker: p.worker, hideHint: true })) : null)
   }
 
   /* ── 设置抽屉 ───────────────────────────────────────────────────── */
@@ -964,29 +986,95 @@ export function createSettings(core) {
   }
 
   const css = [
-    '.st-setup{max-width:760px}',
-    '.st-head{margin:0 0 6px;font-size:16px;outline:none}',
-    '.st-title{margin:0;font-size:16px}',
-    '.st-steps{display:flex;gap:6px;flex-wrap:wrap;list-style:none;margin:0;padding:0}',
-    '.st-step{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--dra-border);border-radius:999px;padding:2px 12px 2px 4px;color:var(--dra-text-dim);font-size:12px}',
-    '.st-step.on{color:var(--dra-text);border-color:var(--dra-accent);font-weight:600}.st-step.done{color:var(--dra-ok)}',
-    '.st-step-n{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--dra-surface-3);font-family:var(--dra-mono);font-size:11px}',
-    '.st-roles{border:0;margin:0 0 10px;padding:0;display:grid;gap:8px}',
-    '.st-role{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--dra-border);border-radius:var(--dra-r-md);background:var(--dra-surface-2);padding:10px 12px;cursor:pointer}',
-    '.st-role:hover{border-color:var(--dra-border-strong)}.st-role.on{border-color:var(--dra-accent);background:color-mix(in srgb,var(--dra-accent) 9%,transparent)}',
-    '.st-role input{margin-top:3px;accent-color:var(--dra-accent)}',
-    '.st-role-body{display:flex;flex-direction:column;gap:2px;min-width:0}.st-role-body b{display:flex;gap:8px;align-items:center;flex-wrap:wrap}',
+    /* ── 通用：分组列表（iOS 风格的内嵌圆角组，行间发丝线，行 = 标签在左 / 值在右） ── */
+    '.st-group{border:1px solid var(--dra-border);border-radius:var(--dra-r-md);background:var(--dra-sheen),var(--dra-glass);backdrop-filter:blur(16px) saturate(1.4);-webkit-backdrop-filter:blur(16px) saturate(1.4);box-shadow:var(--dra-hl),var(--dra-shadow);min-width:0}',
+    '.st-pad{padding:12px 14px}',
+    '.st-list{margin:0;padding:0;list-style:none;overflow:hidden}',
+    '.st-row{display:flex;align-items:baseline;justify-content:space-between;gap:14px;padding:10px 14px;min-width:0}',
+    '.st-row+.st-row{border-top:1px solid color-mix(in srgb,var(--dra-border) 75%,transparent)}',
+    '.st-row dt,.st-row-label{flex:none;color:var(--dra-text-dim)}',
+    '.st-row dd{flex:1;margin:0;min-width:0;text-align:right;overflow-wrap:anywhere}',
+    '.st-foot{margin:2px 6px 0}',
     '.st-err{color:var(--dra-danger)}',
-    '.st-pair{display:flex;flex-direction:column;gap:6px;margin-bottom:10px;padding:10px 12px;border:1px dashed var(--dra-border-strong);border-radius:var(--dra-r-md)}',
-    '.st-warns{margin:8px 0;padding-left:0;list-style:none}',
-    '.st-toks{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.st-tok{display:inline-flex;gap:6px;align-items:center}',
-    '.st-drawer-head{display:flex;align-items:center;gap:10px}',
-    '.st-items{list-style:none;margin:6px 0;padding:0;display:flex;flex-direction:column;gap:8px}',
-    '.st-item{display:grid;grid-template-columns:max-content 1fr;gap:10px;align-items:start}.st-item-body{min-width:0;display:flex;flex-direction:column;gap:2px}',
+    '.st-head{margin:0 0 4px;font-size:18px;font-weight:700;letter-spacing:-.02em;outline:none}',
+    '.st-center{text-align:center}',
+    '.st-title{margin:0;font-size:20px;font-weight:700;letter-spacing:-.02em}',
+
+    /* ── 向导：胶囊进度条，当前步亮起，走过的步打勾 ── */
+    '.st-setup{max-width:780px}',
+    '.st-steps{display:flex;gap:4px;list-style:none;margin:0;padding:4px;border:1px solid var(--dra-border);border-radius:var(--dra-r-pill);background:color-mix(in srgb,var(--dra-surface-1) 70%,transparent);box-shadow:inset 0 1px 3px color-mix(in srgb,var(--dra-bg) 70%,transparent)}',
+    '.st-step{flex:1 1 0;min-width:0;display:flex;align-items:center;justify-content:center;gap:8px;padding:6px 12px;border-radius:var(--dra-r-pill);color:var(--dra-text-dim);font-size:12px;font-weight:500;transition:background-color .3s var(--dra-ease),color .2s,box-shadow .3s var(--dra-ease)}',
+    '.st-step>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+    '.st-step-n{flex:none;display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--dra-surface-3);font-variant-numeric:tabular-nums;font-size:12px;font-weight:600}',
+    '.st-step.on{color:var(--dra-on-primary);background:var(--dra-primary);font-weight:600;animation:st-glow 2.6s ease-in-out infinite}',
+    '.st-step.on .st-step-n{background:color-mix(in srgb,var(--dra-on-primary) 18%,transparent);color:var(--dra-on-primary)}',
+    '.st-step.done{color:var(--dra-ok)}',
+    '.st-step.done .st-step-n{background:color-mix(in srgb,var(--dra-ok) 22%,transparent);color:var(--dra-ok);animation:dra-pop .45s var(--dra-spring) both}',
+    '@keyframes st-glow{0%,100%{box-shadow:inset 0 1px 0 color-mix(in srgb,var(--dra-on-primary) 25%,transparent),0 0 0 0 color-mix(in srgb,var(--dra-accent) 0%,transparent)}50%{box-shadow:inset 0 1px 0 color-mix(in srgb,var(--dra-on-primary) 25%,transparent),0 0 20px 1px color-mix(in srgb,var(--dra-accent) 55%,transparent)}}',
+
+    /* ── 角色选择：三块大玻璃选择卡；选中 = 极光描边（旋转）+ 对勾，不只靠颜色 ── */
+    '.st-roles{border:0;margin:0 0 14px;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;min-width:0}',
+    '.st-roles legend{padding:0 0 8px}',
+    '.st-role{position:relative;display:flex;flex-direction:column;gap:10px;align-items:flex-start;border:1.5px solid var(--dra-border);border-radius:var(--dra-r-lg);background:var(--dra-sheen),var(--dra-glass);backdrop-filter:blur(16px) saturate(1.4);-webkit-backdrop-filter:blur(16px) saturate(1.4);box-shadow:var(--dra-hl),var(--dra-shadow);padding:16px 16px 14px;cursor:pointer;transition:border-color .2s var(--dra-ease),box-shadow .25s var(--dra-ease),transform .3s var(--dra-spring)}',
+    '.st-role:hover{border-color:var(--dra-border-strong);box-shadow:var(--dra-hl),var(--dra-elev-2)}',
+    '.st-role:active{transform:scale(.98)}',
+    '.st-role:focus-within{outline:2px solid var(--dra-accent);outline-offset:2px}',
+    '.st-role.on{border-color:transparent;background:var(--dra-sheen) padding-box,linear-gradient(var(--dra-surface-2),var(--dra-surface-2)) padding-box,conic-gradient(from var(--dra-angle),var(--dra-accent),var(--dra-accent-2),var(--dra-accent-3),var(--dra-accent)) border-box;box-shadow:var(--dra-hl),var(--dra-glow);animation:dra-spin 5s linear infinite}',
+    '.st-role input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer}',
+    '.st-role-glyph{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;border-radius:var(--dra-r-md);background:var(--dra-sheen),var(--dra-surface-3);box-shadow:var(--dra-hl);font-size:24px;line-height:1;color:var(--dra-accent)}',
+    '.st-role.on .st-role-glyph{background:var(--dra-primary);color:var(--dra-on-primary)}',
+    '.st-check{position:absolute;top:12px;right:12px;display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:var(--dra-primary);color:var(--dra-on-primary);font-size:13px;font-weight:700}',
+    '.st-role-body{display:flex;flex-direction:column;gap:3px;min-width:0}.st-role-body b{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:15px;letter-spacing:-.01em}',
+    '.st-role-tag{font-weight:500}',
+
+    /* ── 连接信息：配对盒子是内凹虚线组 ── */
+    '.st-pair{display:flex;flex-direction:column;gap:8px;margin-bottom:12px;border-style:dashed;border-color:var(--dra-border-strong);box-shadow:inset 0 1px 3px color-mix(in srgb,var(--dra-bg) 60%,transparent)}',
+    '.st-toks{margin:0}.st-tok{align-items:center}',
+    '.st-acts{justify-content:flex-start;align-items:center;flex-wrap:wrap}',
+
+    /* ── 确认页 / 完成页：抬高的玻璃摘要；完成页有一次性的弹入对勾章 ── */
+    '.st-summary.dra-card{border-color:var(--dra-border-strong);box-shadow:var(--dra-hl),var(--dra-elev-2)}',
+    '.st-summary .dra-card-body{display:flex;flex-direction:column;gap:12px}',
+    '.st-seal{position:relative;align-self:center;display:flex;align-items:center;justify-content:center;width:64px;height:64px;border-radius:50%;background:var(--dra-primary);color:var(--dra-on-primary);font-size:32px;font-weight:700;box-shadow:var(--dra-hl),0 14px 30px -10px color-mix(in srgb,var(--dra-accent) 80%,transparent);animation:st-seal .7s var(--dra-spring) both}',
+    '.st-seal::after{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid var(--dra-accent);animation:st-ripple 1.1s .25s var(--dra-ease) both}',
+    '@keyframes st-seal{0%{opacity:0;transform:scale(.4) rotate(-20deg)}100%{opacity:1;transform:none}}',
+    '@keyframes st-ripple{0%{opacity:.8;transform:scale(1)}100%{opacity:0;transform:scale(2)}}',
+    '.st-warns{margin:0;padding:0;list-style:none}',
+
+    /* ── 设置抽屉 / 副机页：分区去掉外框，内容是分组列表 ── */
+    '.st-drawer-head{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:10px;margin:-18px -20px 0;padding:16px 20px 12px;background:var(--dra-glass-strong);backdrop-filter:blur(20px) saturate(1.5);-webkit-backdrop-filter:blur(20px) saturate(1.5);border-bottom:1px solid color-mix(in srgb,var(--dra-border) 75%,transparent);border-radius:var(--dra-r-xl) 0 0 0}',
+    '.st-sec.dra-card,.st-sec.dra-card:hover{background:none;border:0;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none;border-radius:0}',
+    '.st-sec .dra-card-head{border:0;padding:2px 6px 8px}',
+    '.st-sec .dra-card-title{font-size:15px}',
+    '.st-sec .dra-card-body{padding:0;display:flex;flex-direction:column;gap:10px}',
+    '.st-sec-title{margin:0 6px 2px;font-size:13px;font-weight:600;color:var(--dra-text-dim)}',
+    '.st-both{display:flex;flex-direction:column;gap:6px}',
+
+    /* ── 体检 / 通道：行逐个弹入，状态字形弹出；修复预览是内凹面板 ── */
+    '.st-item{align-items:flex-start;justify-content:flex-start}',
+    '.st-item-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}.st-item-label{font-weight:500}',
+    '.st-state{flex:none;display:inline-flex;align-items:center;gap:6px;min-width:76px;font-weight:600;white-space:nowrap}',
+    '.st-state.ok{color:var(--dra-ok)}.st-state.warn{color:var(--dra-warn)}.st-state.bad{color:var(--dra-danger)}',
+    '.st-glyph{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;font-size:12px;font-weight:700;background:color-mix(in srgb,currentColor 16%,transparent);border:1px solid color-mix(in srgb,currentColor 45%,transparent)}',
+    '.st-stagger>.st-row{--st-d:0s;animation:st-in .55s var(--dra-spring) var(--st-d) both}',
+    '.st-stagger>.st-row:nth-child(2){--st-d:.06s}.st-stagger>.st-row:nth-child(3){--st-d:.12s}.st-stagger>.st-row:nth-child(4){--st-d:.18s}.st-stagger>.st-row:nth-child(5){--st-d:.24s}.st-stagger>.st-row:nth-child(6){--st-d:.3s}.st-stagger>.st-row:nth-child(7){--st-d:.36s}.st-stagger>.st-row:nth-child(8){--st-d:.42s}.st-stagger>.st-row:nth-child(n+9){--st-d:.48s}',
+    '.st-stagger>.st-row .st-glyph{animation:dra-pop .5s var(--dra-spring) calc(var(--st-d) + .2s) both}',
+    '@keyframes st-in{0%{opacity:0;transform:translateY(10px) scale(.98)}100%{opacity:1;transform:none}}',
     '.st-fix{flex:1;font-family:var(--dra-mono)}',
-    '.st-preview{border:1px solid var(--dra-border);border-radius:var(--dra-r-sm);background:var(--dra-surface-2);padding:8px 12px;margin:8px 0}',
-    '.st-line{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;margin:4px 0}',
-    '.st-both{margin-top:10px;display:flex;flex-direction:column;gap:6px}',
+    '.st-preview{margin:0;padding:12px 14px;border:1px dashed var(--dra-border-strong);border-radius:var(--dra-r-md);background:color-mix(in srgb,var(--dra-bg) 45%,var(--dra-surface-1));box-shadow:inset 0 2px 6px color-mix(in srgb,var(--dra-bg) 70%,transparent)}',
+    '.st-items{list-style:none;margin:8px 0;padding:0;display:flex;flex-direction:column;gap:8px}',
+    '.st-line{align-items:center;justify-content:flex-start;flex-wrap:wrap}',
+    '.dra-dot.warn.st-park{width:10px;height:10px;margin-top:4px;animation:dra-breathe 1.8s ease-out infinite}',
+    '.st-node .st-item-body{gap:1px}',
+    '.st-count{flex:none;align-self:center;min-width:28px;padding:1px 9px;border-radius:var(--dra-r-pill);text-align:center;font-variant-numeric:tabular-nums;font-weight:700;color:var(--dra-warn);background:color-mix(in srgb,var(--dra-warn) 14%,transparent);border:1px solid color-mix(in srgb,var(--dra-warn) 40%,transparent)}',
+
+    /* ── 副机计数器：大号等宽数字 ── */
+    '.st-counters .dra-stat-value{font-size:30px;letter-spacing:-.03em}',
+
+    /* ── 降级：没有毛玻璃 / 要求减少透明度时换实色面；强制颜色模式下选中靠边框 ── */
+    '@supports not (backdrop-filter:blur(1px)){.st-group,.st-role,.st-drawer-head{background:var(--dra-surface-1)}}',
+    '@media (prefers-reduced-transparency:reduce){.st-group,.st-role,.st-drawer-head{background:var(--dra-surface-1);backdrop-filter:none;-webkit-backdrop-filter:none}}',
+    '@media (forced-colors:active){.st-role.on{border:2px solid Highlight}.st-step.on{border:2px solid Highlight}.st-group,.st-role{border:1px solid CanvasText}}',
   ]
 
   return { css, Setup, WorkerView, Drawer }
