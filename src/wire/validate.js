@@ -184,6 +184,37 @@ export function validateBotMessage(d) {
   return { exchangeId: d.exchangeId, kind: d.kind, from, to, text: d.text, depth: d.depth }
 }
 
+/** bot/assign 的操作：deliver 投递一条 Bot 间消息，ack 确认已收下，bounce 目标机器不可达、退回发送方。 */
+export const BOT_ASSIGN_OPS = Object.freeze(['deliver', 'ack', 'bounce'])
+/** bot/assign deliver 的角色，与 ds-bot 的 Bot 间交接角色一致。 */
+export const BOT_ASSIGN_ROLES = Object.freeze(['request', 'reply', 'stopped'])
+
+/**
+ * 校验并重建 bot/assign：跨机器的 Bot 间投递（节点 ↔ 主控，主控转发节点 ↔ 节点）。
+ * from / to 用全队通用 id（主控 Bot 用自己的 id，节点 Bot 用 joined:<nodeId>:<本地 id>）。坏帧抛出稳定错误，不透传未知字段。
+ */
+export function validateBotAssign(d) {
+  const invalid = () => { throw new RemoteAgentError('invalid bot/assign payload', 'bot-assign-invalid') }
+  if (!d || typeof d !== 'object' || Array.isArray(d)) invalid()
+  const from = botNetworkIdentity(d.from)
+  const to = botNetworkIdentity(d.to)
+  if (!BOT_ASSIGN_OPS.includes(d.op) || !botNetworkString(d.frameId, 200) || !from || !to) invalid()
+  const out = { op: d.op, frameId: d.frameId, from, to, at: Number.isFinite(d.at) ? d.at : Date.now() }
+  if (d.op === 'deliver') {
+    if (!BOT_ASSIGN_ROLES.includes(d.role) || !botNetworkString(d.exchangeId, 200) ||
+      typeof d.text !== 'string' || d.text.length > 65536) invalid()
+    out.role = d.role
+    out.exchangeId = d.exchangeId
+    out.text = d.text
+    if (d.replyTo !== undefined) {
+      if (!botNetworkString(d.replyTo, 200)) invalid()
+      out.replyTo = d.replyTo
+    }
+  }
+  if (d.op === 'bounce') out.reason = typeof d.reason === 'string' ? d.reason.trim().slice(0, 200) : ''
+  return out
+}
+
 /** bot/directory 里 Bot 的状态：空闲 / 干活中 / 等人 / 离线。 */
 export const BOT_DIRECTORY_STATES = Object.freeze(['available', 'working', 'waiting', 'offline'])
 /** bot/directory 里机器列表的上限（主控 + 节点）。 */

@@ -40,6 +40,9 @@ export function createFrameDispatcher({ ctx, send, sendError, engine, logger, st
       case HUB_TO_NODE.BOT_MESSAGE:
         swallow(network?.receiveMessage(data))
         return true
+      case HUB_TO_NODE.BOT_ASSIGN:
+        network?.receiveAssign?.(data)
+        return true
       case HUB_TO_NODE.BOT_TURN:
         if (replay && validateBotTurn(data).ok) {
           swallow(replay.run(data.exchangeId.trim(), async () => {

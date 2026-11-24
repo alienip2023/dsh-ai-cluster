@@ -78,6 +78,7 @@ export const HUB_TO_NODE = Object.freeze({
   /** 节点 Bot 网络：宿主生成的目录与节点间消息，独立于 bot/turn。 */
   BOT_DIRECTORY: 'bot/directory',
   BOT_MESSAGE: 'bot/message',
+  BOT_ASSIGN: 'bot/assign',
   /**
    * 名单第 3 步。主控在指定 node 上新建一个本地 Bot。
    * 载荷 { nodeId, name, role, requestId }。不进 task/start。
@@ -231,6 +232,7 @@ export const NODE_TO_HUB = Object.freeze({
    */
   BOT_TURN_RESULT: 'bot/turn-result',
   BOT_MESSAGE: 'bot/message',
+  BOT_ASSIGN: 'bot/assign',
   /**
    * 节点 Bot 回合的流式文本增量（能力 bot-stream/1），节点 → 主控。
    * 主控凭此在页面上逐字渲染节点 Bot 的回答，体验与本地 Bot 一致。
