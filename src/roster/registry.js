@@ -319,7 +319,7 @@ class RosterCore extends EventEmitter {
   send(nodeId, type, data, opts = {}) {
     // An image or a file is the user's own data: it never leaves unencrypted (the receiving side refuses plaintext too),
     // so a node whose E2E session is not up yet gets no chunk rather than a readable one. The sender fails the message.
-    if (type === HUB_TO_NODE.BOT_ATTACH && !this.nodes.get(nodeId)?.e2e) {
+    if (type === HUB_TO_NODE.BOT_ATTACH && !this.e2eReady(nodeId)) {
       this.log('warn', 'bot/attach not sent: no e2e session with the node', { nodeId })
       return false
     }
@@ -334,11 +334,29 @@ class RosterCore extends EventEmitter {
     return this.sendViaHub(nodeId, type, data, opts)
   }
 
+  /** The node's E2E session belongs to its current connection (a reconnect makes the old one stale until re-offered). */
+  e2eReady(nodeId) {
+    const rec = this.nodes.get(nodeId)
+    return Boolean(rec?.e2e) && rec.e2eStale !== true
+  }
+
   sendViaHub(nodeId, type, data, opts = {}) {
     if (typeof nodeId !== 'string' || nodeId === '') return false
     const rec = this.nodes.get(nodeId)
     const env = envelope(type, data, opts)
     const e2eReset = type === HUB_TO_NODE.ERROR && data?.code === ERROR_CODE.E2E_RESET
+    // After a reconnect the old session's key is gone on the node: a frame sealed with it would be dropped there
+    // without a word. Until the new session is up, a frame that must be sealed is not sent (the caller sees false).
+    if (rec?.e2e && rec.e2eStale === true && !RosterCore.E2E_CLEAR_TYPES.has(type) && !e2eReset) {
+      this.log('warn', 'frame not sent: e2e session is being renegotiated after a reconnect', { nodeId, type })
+      return false
+    }
+    // Which exchange a bot/turn envelope carries: a node that drops it (e2e not ready) names only the envelope.
+    if (type === HUB_TO_NODE.BOT_TURN && typeof data?.exchangeId === 'string') {
+      const sent = (this.turnEnvelopes ??= new Map())
+      sent.set(env.id, data.exchangeId)
+      if (sent.size > 512) sent.delete(sent.keys().next().value)
+    }
     if (rec?.e2e && !RosterCore.E2E_CLEAR_TYPES.has(type) && !e2eReset) {
       try {
         env.d = rec.e2e.sealFrame(type, env.id, env.d)
@@ -1071,6 +1089,9 @@ export function withIngest(Base) {
           if (this.nodes.get(assign.to.nodeId)?.online) {
             const sent = this.send(assign.to.nodeId, HUB_TO_NODE.BOT_ASSIGN, assign)
             relayed(sent === false ? 'send-failed' : 'forwarded')
+            if (sent === false && assign.op === 'deliver') {
+              this.send(nodeId, HUB_TO_NODE.BOT_ASSIGN, { op: 'bounce', frameId: assign.frameId, from: assign.to, to: assign.from, reason: 'send-failed', at: Date.now() })
+            }
             return
           }
           relayed('target-offline')
