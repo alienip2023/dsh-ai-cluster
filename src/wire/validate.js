@@ -184,6 +184,31 @@ export function validateBotMessage(d) {
   return { exchangeId: d.exchangeId, kind: d.kind, from, to, text: d.text, depth: d.depth }
 }
 
+/** team/act 携带的工具参数（JSON 文本）上限。 */
+export const TEAM_ACT_ARGS_MAX = 32_768
+const TEAM_ACT_TOOL_RE = /^[a-z][a-z0-9_]{0,63}$/
+
+/**
+ * 校验 team/act：节点上的 Bot 请主控代为执行一个团队管理工具（建 Bot、建群等）。
+ * actor 用全队通用 id；args 是工具参数的 JSON 文本。主控决定是否允许，传输层不判断。
+ */
+export function validateTeamAct(d) {
+  const invalid = () => { throw new RemoteAgentError('invalid team/act payload', 'team-act-invalid') }
+  if (!d || typeof d !== 'object' || Array.isArray(d)) invalid()
+  const actor = botNetworkIdentity(d.actor)
+  if (!actor || !botNetworkString(d.requestId, 200) || typeof d.tool !== 'string' || !TEAM_ACT_TOOL_RE.test(d.tool) ||
+    typeof d.args !== 'string' || d.args.length > TEAM_ACT_ARGS_MAX) invalid()
+  return { requestId: d.requestId, actor, tool: d.tool, args: d.args }
+}
+
+/** 校验 team/act-result：主控执行结果（工具返回的文本）。 */
+export function validateTeamActResult(d) {
+  const invalid = () => { throw new RemoteAgentError('invalid team/act-result payload', 'team-act-invalid') }
+  if (!d || typeof d !== 'object' || Array.isArray(d) || !botNetworkString(d.requestId, 200) || typeof d.ok !== 'boolean' ||
+    typeof d.text !== 'string') invalid()
+  return { requestId: d.requestId, ok: d.ok, text: d.text.slice(0, 65536) }
+}
+
 /** bot/assign 的操作：deliver 投递一条 Bot 间消息，ack 确认已收下，bounce 目标机器不可达、退回发送方。 */
 export const BOT_ASSIGN_OPS = Object.freeze(['deliver', 'ack', 'bounce'])
 /** bot/assign deliver 的角色，与 ds-bot 的 Bot 间交接角色一致。 */

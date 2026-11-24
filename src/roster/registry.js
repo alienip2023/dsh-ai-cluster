@@ -46,6 +46,7 @@ import {
   validateBotTurn,
   validateBotMessage,
   validateBotAssign,
+  validateTeamAct,
   validateBotCreateResult,
   validateBotHistoryResult,
   validateBotUpdateResult,
@@ -1027,6 +1028,18 @@ export function withIngest(Base) {
             if (skills !== undefined) report.skills = skills
             this.emit('roster', report)
           } catch { /* a listener must not take the ingest path down */ }
+          return
+        }
+
+        case NODE_TO_HUB.TEAM_ACT: {
+          // A node Bot asks the hub to run a team-management tool for it; the host decides.
+          let act
+          try { act = validateTeamAct(d) } catch { return }
+          if (act.actor.nodeId !== nodeId) {
+            this.log('warn', 'peer-node-mismatch', { connection: nodeId, claimed: act.actor.nodeId, frame: frame.t })
+            return
+          }
+          try { this.emit('teamAct', { ...act, nodeId }) } catch { /* a listener must not take the ingest path down */ }
           return
         }
 

@@ -101,3 +101,32 @@ test('R2-6 node sendAssign goes over the hub link with the sender identityId; re
   assert.equal(got[0].to.id, e11.id)
   network.dispose()
 })
+
+test('R4-1 team/act: node asks, hub ingest checks the actor node, host answers, node gets the result', async () => {
+  const { validateTeamAct, validateTeamActResult, HUB_TO_NODE: H, NODE_TO_HUB: N } = await import('../lib/protocol.js')
+  assert.equal(N.TEAM_ACT, 'team/act')
+  assert.equal(H.TEAM_ACT_RESULT, 'team/act-result')
+  assert.throws(() => validateTeamAct({ requestId: 'r', actor: e11, tool: 'Create-Bot', args: '{}' }), { code: 'team-act-invalid' })
+  assert.throws(() => validateTeamAct({ requestId: 'r', actor: e11, tool: 'create_bot', args: 'x'.repeat(40000) }), { code: 'team-act-invalid' })
+  assert.deepEqual(validateTeamActResult({ requestId: 'r', ok: true, text: 'done', extra: 1 }), { requestId: 'r', ok: true, text: 'done' })
+
+  const registry = new (withIngest(Core))()
+  const hubNet = createHubBotNetwork({ registry, ctx: { get: () => undefined } })
+  const seen = []
+  hubNet.onTeamAct(async act => { seen.push(act); return act.tool === 'create_bot' ? 'Created X on node011.' : { ok: false, text: 'nope' } })
+  const node = createBotNetwork({ nodeId: 'node011', sendHub: (type, data) => { registry.handleFrameFor('node011', { t: type, d: data }); return true } })
+  // the hub's answer comes back on the node connection
+  registry.send = (nodeId, type, data) => { if (nodeId === 'node011' && type === 'team/act-result') node.receiveTeamActResult(data); return true }
+  const out = await node.teamAct({ requestId: 'r-1', actor: e11, tool: 'create_bot', args: JSON.stringify({ name: 'X' }) })
+  assert.deepEqual(out, { ok: true, text: 'Created X on node011.' })
+  assert.equal(seen[0].nodeId, 'node011')
+  assert.deepEqual(JSON.parse(seen[0].args), { name: 'X' })
+  // a spoofed actor (on another node than the connection) is dropped by the hub
+  registry.handleFrameFor('node010', { t: 'team/act', d: { requestId: 'r-2', actor: e11, tool: 'create_bot', args: '{}' } })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(seen.length, 1)
+  // hub link down: answered at once, not after the timeout
+  const offline = createBotNetwork({ nodeId: 'node011', sendHub: () => false })
+  assert.deepEqual(await offline.teamAct({ requestId: 'r-3', actor: e11, tool: 'create_bot', args: '{}' }), { ok: false, text: 'The hub is not connected.' })
+  node.dispose(); offline.dispose(); hubNet.dispose()
+})
