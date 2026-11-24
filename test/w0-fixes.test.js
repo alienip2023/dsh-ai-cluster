@@ -11,8 +11,8 @@ function registryWithNode({ stale = false } = {}) {
   registry.nodes.set('n1', {
     nodeId: 'n1', online: true, tasks: new Map(), hello: {},
     conn: { closed: false, send: text => wire.push(JSON.parse(text)) },
-    e2e: { sealFrame: (type, id, d) => { sealed.push(type); return { sealed: true } } },
-    e2eStale: stale,
+    e2e: { sealFrame: (type) => { sealed.push(type); return { sealed: true } } },
+    e2eStale: stale, e2eReset: stale,
   })
   return { registry, wire, sealed }
 }
@@ -62,4 +62,19 @@ test('W0-4 a bot/assign the hub cannot forward is bounced back to its sender', a
   assert.ok(bounce, 'the sender is told')
   assert.equal(bounce.data.op, 'bounce')
   assert.equal(bounce.data.reason, 'send-failed')
+})
+
+test('W0-5 a relay directory replay keeps the session usable; the relay saying the node connected again does not', async () => {
+  const { PROTOCOL_VERSION } = await import('../lib/protocol.js')
+  const registry = new NodeRegistry({ log() {} })
+  registry.send = () => true
+  const hello = { nodeId: 'n7', protocol: PROTOCOL_VERSION, os: 'linux', hostname: 'h', version: '1', caps: [] }
+  registry.handleRelayFrame({ t: 'node/online', d: { node: hello } })
+  const rec = registry.nodes.get('n7')
+  assert.ok(rec, 'adopted')
+  rec.e2e = { sealFrame: () => ({ sealed: true }) }
+  registry.handleRelayFrame({ t: 'node/list', d: { nodes: [hello] } })
+  assert.equal(registry.e2eReady('n7'), true, 'hub-side replay: the node may still hold the session')
+  registry.handleRelayFrame({ t: 'node/online', d: { node: hello } })
+  assert.equal(registry.e2eReady('n7'), false, 'the node connected again: its old session is gone')
 })

@@ -47,6 +47,8 @@ import {
   validateBotMessage,
   validateBotAssign,
   validateTeamAct,
+  validateRelFrame,
+  validateRelAck,
   validateBotCreateResult,
   validateBotHistoryResult,
   validateBotUpdateResult,
@@ -337,7 +339,7 @@ class RosterCore extends EventEmitter {
   /** The node's E2E session belongs to its current connection (a reconnect makes the old one stale until re-offered). */
   e2eReady(nodeId) {
     const rec = this.nodes.get(nodeId)
-    return Boolean(rec?.e2e) && rec.e2eStale !== true
+    return Boolean(rec?.e2e) && !(rec.e2eStale === true && rec.e2eReset === true)
   }
 
   sendViaHub(nodeId, type, data, opts = {}) {
@@ -347,7 +349,7 @@ class RosterCore extends EventEmitter {
     const e2eReset = type === HUB_TO_NODE.ERROR && data?.code === ERROR_CODE.E2E_RESET
     // After a reconnect the old session's key is gone on the node: a frame sealed with it would be dropped there
     // without a word. Until the new session is up, a frame that must be sealed is not sent (the caller sees false).
-    if (rec?.e2e && rec.e2eStale === true && !RosterCore.E2E_CLEAR_TYPES.has(type) && !e2eReset) {
+    if (rec?.e2e && rec.e2eStale === true && rec.e2eReset === true && !RosterCore.E2E_CLEAR_TYPES.has(type) && !e2eReset) {
       this.log('warn', 'frame not sent: e2e session is being renegotiated after a reconnect', { nodeId, type })
       return false
     }
@@ -1046,6 +1048,18 @@ export function withIngest(Base) {
             if (skills !== undefined) report.skills = skills
             this.emit('roster', report)
           } catch { /* a listener must not take the ingest path down */ }
+          return
+        }
+
+        case NODE_TO_HUB.REL_FRAME:
+        case NODE_TO_HUB.REL_ACK: {
+          // The reliable link (lib/reliable-link.js): who sent it is this connection, nothing the frame says.
+          let checked
+          try { checked = frame.t === NODE_TO_HUB.REL_FRAME ? validateRelFrame(d) : validateRelAck(d) } catch {
+            this.log('warn', 'rel frame rejected', { nodeId, type: frame.t })
+            return
+          }
+          if (this.reliable) void this.reliable.receive(nodeId, frame.t, checked)
           return
         }
 
