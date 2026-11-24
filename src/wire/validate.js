@@ -1298,6 +1298,36 @@ export function validateMemSnapshot(d) {
     bots[id] = bot
   }
   const out = { seq: o.seq, team, node, bots }
+  // groups (memory-sync, AC 0.4.34+): the hub group memory of the rooms this node's Bots are in, with the
+  // node-local ids of the members, so a node shows a room's memory only to that room's members.
+  if (o.groups !== undefined) {
+    const groupsRaw = memPlain(o.groups)
+    if (groupsRaw === null) return null
+    const roomIds = Object.keys(groupsRaw)
+    if (roomIds.length > 32) return null
+    const groups = {}
+    for (const key of roomIds) {
+      const roomId = memId(key)
+      if (roomId === null) return null
+      const raw = groupsRaw[key]
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+      const text = memBounded(raw.text ?? '', 64 * 1024)
+      if (text === null || !Array.isArray(raw.members) || raw.members.length > 64) return null
+      const members = []
+      for (const member of raw.members) {
+        const id = memId(member)
+        if (id === null) return null
+        members.push(id)
+      }
+      const group = { text, members }
+      if (raw.truncated !== undefined) {
+        if (typeof raw.truncated !== 'boolean') return null
+        group.truncated = raw.truncated
+      }
+      groups[roomId] = group
+    }
+    out.groups = groups
+  }
   if (o.truncated !== undefined) {
     if (typeof o.truncated !== 'boolean') return null
     out.truncated = o.truncated
