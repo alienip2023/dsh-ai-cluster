@@ -1,185 +1,77 @@
 #!/usr/bin/env node
-// dsh-node-daemon.mjs — watchdog process for dsh node.
+// dsh-node-daemon — keep this machine's DSH (with the AC and ds-bot plugins) running.
 //
-// Keeps the dsh node process alive: forks it as a child, restarts on exit
-// with exponential backoff (1s → 2s → 4s → … → 60s max).
+//   dsh-node-daemon start [--config <file>]   supervise DSH in the foreground
+//   dsh-node-daemon stop | status
 //
-// Usage:
-//   dsh-node-daemon start [--config path/to/config.json]
-//   dsh-node-daemon stop
-//   dsh-node-daemon status
-//   dsh-node-daemon install   # register as launchd/systemd service
+// The command it supervises comes from the config file (~/.dsh/daemon-config.json:
+// { command, args, cwd, env }) or, when absent, from detectDshCommand(). Autostart at
+// login per platform is installed by the AC panel (ARCHITECTURE.md §10).
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import { createSupervisor } from '../lib/daemon/supervisor.js'
+import { detectDshCommand } from '../lib/daemon/detect.js'
 
-import { spawn } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
-import { homedir, platform } from 'node:os'
-import { join, dirname, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { createServer } from 'node:net'
-
-const __dirname = dirname(fileURLToPath(import.meta.url))
 const DSH_DIR = join(homedir(), '.dsh')
 const PID_FILE = join(DSH_DIR, 'daemon.pid')
 const LOG_FILE = join(DSH_DIR, 'daemon.log')
 const CONFIG_FILE = join(DSH_DIR, 'daemon-config.json')
 
-const BACKOFF_DELAYS = [1000, 2000, 4000, 8000, 15000, 30000, 60000]
-
 function log(msg) {
   const line = `${new Date().toISOString()} ${msg}\n`
   process.stderr.write(line)
-  try {
-    mkdirSync(DSH_DIR, { recursive: true })
-    const { appendFileSync } = await import('node:fs').catch(() => ({ appendFileSync: null }))
-    appendFileSync?.(LOG_FILE, line)
-  } catch {}
+  try { mkdirSync(DSH_DIR, { recursive: true }); appendFileSync(LOG_FILE, line) } catch { /* logging must not stop the daemon */ }
 }
 
-function loadConfig(configPath) {
-  const path = configPath ?? (existsSync(CONFIG_FILE) ? CONFIG_FILE : null)
-  if (!path) return {}
-  try { return JSON.parse(readFileSync(path, 'utf8')) } catch { return {} }
+function loadConfig(path) {
+  const file = path ?? (existsSync(CONFIG_FILE) ? CONFIG_FILE : undefined)
+  if (!file) return {}
+  try { return JSON.parse(readFileSync(file, 'utf8')) } catch (err) { log(`config ${file} unreadable: ${err.message}`); return {} }
 }
 
-function writePid(pid) {
+const readPid = () => { try { return Number.parseInt(readFileSync(PID_FILE, 'utf8').trim(), 10) } catch { return undefined } }
+const alive = (pid) => { if (!Number.isInteger(pid) || pid <= 0) return false; try { process.kill(pid, 0); return true } catch { return false } }
+
+async function start(argv) {
+  const i = argv.indexOf('--config')
+  const config = loadConfig(i !== -1 ? argv[i + 1] : undefined)
+  const running = readPid()
+  if (alive(running) && running !== process.pid) { console.error(`dsh-node-daemon already running (pid ${running})`); process.exitCode = 1; return }
+  const target = config.command ? { command: config.command, args: config.args ?? [] } : detectDshCommand()
+  if (!target) {
+    console.error(`No DSH to start: install DeepSeek Harness, or set "command" in ${CONFIG_FILE}.`)
+    process.exitCode = 1
+    return
+  }
   mkdirSync(DSH_DIR, { recursive: true })
-  writeFileSync(PID_FILE, String(pid), 'utf8')
+  writeFileSync(PID_FILE, String(process.pid), 'utf8')
+  const supervisor = createSupervisor({ ...target, cwd: config.cwd ?? homedir(), env: { ...process.env, ...config.env }, log })
+  const shutdown = async (signal) => {
+    log(`received ${signal}, stopping`)
+    await supervisor.stop()
+    try { if (readPid() === process.pid) rmSync(PID_FILE) } catch { /* already gone */ }
+    process.exit(0)
+  }
+  for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP']) process.on(signal, () => void shutdown(signal))
+  log(`daemon ${process.pid} supervising ${target.command} ${target.args.join(' ')}`)
+  supervisor.start()
 }
 
-function readPid() {
-  try { return parseInt(readFileSync(PID_FILE, 'utf8').trim(), 10) } catch { return null }
-}
-
-function isRunning(pid) {
-  if (!pid) return false
-  try { process.kill(pid, 0); return true } catch { return false }
-}
-
-// ── commands ──────────────────────────────────────────────────────────────────
-
-async function cmdStatus() {
+function stop() {
   const pid = readPid()
-  if (isRunning(pid)) {
-    console.log(`dsh node daemon is running (pid ${pid})`)
-  } else {
-    console.log('dsh node daemon is not running')
-  }
+  if (!alive(pid)) { console.log('dsh-node-daemon is not running'); return }
+  process.kill(pid, 'SIGTERM')
+  console.log(`stopping dsh-node-daemon (pid ${pid})`)
 }
 
-async function cmdStop() {
+function status() {
   const pid = readPid()
-  if (!isRunning(pid)) { console.log('daemon is not running'); return }
-  try { process.kill(pid, 'SIGTERM'); console.log(`sent SIGTERM to ${pid}`) } catch (err) {
-    console.error(`failed to stop daemon: ${err.message}`)
-  }
+  console.log(alive(pid) ? `dsh-node-daemon is running (pid ${pid})` : 'dsh-node-daemon is not running')
 }
-
-async function cmdInstall() {
-  const plat = platform()
-  const daemonScript = resolve(__dirname, 'dsh-node-daemon.mjs')
-  if (plat === 'darwin') {
-    const plist = `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key><string>com.dsh.node-daemon</string>
-  <key>ProgramArguments</key>
-  <array><string>node</string><string>${daemonScript}</string><string>start</string></array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>${LOG_FILE}</string>
-  <key>StandardErrorPath</key><string>${LOG_FILE}</string>
-</dict>
-</plist>`
-    const plistPath = join(homedir(), 'Library', 'LaunchAgents', 'com.dsh.node-daemon.plist')
-    mkdirSync(dirname(plistPath), { recursive: true })
-    writeFileSync(plistPath, plist, 'utf8')
-    console.log(`launchd plist written to ${plistPath}`)
-    console.log('Run: launchctl load ' + plistPath)
-  } else if (plat === 'linux') {
-    const unit = `[Unit]
-Description=DSH Node Daemon
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=node ${daemonScript} start
-Restart=always
-RestartSec=5
-User=${process.env.USER || 'root'}
-
-[Install]
-WantedBy=multi-user.target`
-    const unitPath = `/etc/systemd/system/dsh-node.service`
-    console.log(`systemd unit (write to ${unitPath}):\n`)
-    console.log(unit)
-    console.log('\nThen run: systemctl enable --now dsh-node')
-  } else {
-    console.log('Auto-install not supported on this platform. Run the daemon manually.')
-  }
-}
-
-async function cmdStart(argv) {
-  const configPath = (() => {
-    const i = argv.indexOf('--config')
-    return i !== -1 && argv[i + 1] ? argv[i + 1] : null
-  })()
-
-  const config = loadConfig(configPath)
-
-  // The command to run — default: the dsh node entrypoint
-  const nodeCmd = config.command ?? 'dsh'
-  const nodeArgs = config.args ?? ['node', 'start']
-  const nodeCwd = config.cwd ?? homedir()
-  const nodeEnv = { ...process.env, ...config.env }
-
-  writePid(process.pid)
-  log(`daemon started (pid ${process.pid}), managing: ${nodeCmd} ${nodeArgs.join(' ')}`)
-
-  let attempt = 0
-  let stopping = false
-
-  process.on('SIGTERM', () => { stopping = true; log('daemon received SIGTERM, shutting down'); process.exit(0) })
-  process.on('SIGINT', () => { stopping = true; log('daemon received SIGINT, shutting down'); process.exit(0) })
-
-  const run = () => {
-    if (stopping) return
-    log(`starting node process (attempt ${attempt + 1})`)
-    const child = spawn(nodeCmd, nodeArgs, {
-      cwd: nodeCwd,
-      env: nodeEnv,
-      stdio: 'inherit',
-    })
-
-    child.on('exit', (code, signal) => {
-      if (stopping) return
-      const delay = BACKOFF_DELAYS[Math.min(attempt, BACKOFF_DELAYS.length - 1)]
-      log(`node process exited (code=${code ?? signal}), restarting in ${delay}ms`)
-      attempt += 1
-      setTimeout(run, delay).unref()
-    })
-
-    child.on('error', (err) => {
-      if (stopping) return
-      const delay = BACKOFF_DELAYS[Math.min(attempt, BACKOFF_DELAYS.length - 1)]
-      log(`node process error: ${err.message}, restarting in ${delay}ms`)
-      attempt += 1
-      setTimeout(run, delay).unref()
-    })
-  }
-
-  run()
-}
-
-// ── entry point ───────────────────────────────────────────────────────────────
 
 const [,, cmd, ...rest] = process.argv
-switch (cmd) {
-  case 'start':  await cmdStart(rest); break
-  case 'stop':   await cmdStop(); break
-  case 'status': await cmdStatus(); break
-  case 'install': await cmdInstall(); break
-  default:
-    console.log('Usage: dsh-node-daemon <start|stop|status|install> [--config path]')
-    process.exit(1)
-}
+if (cmd === 'start') await start(rest)
+else if (cmd === 'stop') stop()
+else if (cmd === 'status') status()
+else { console.log('Usage: dsh-node-daemon <start|stop|status> [--config <file>]'); process.exitCode = 1 }
