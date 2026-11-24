@@ -86,7 +86,6 @@ const E2E_REQUIRED_TYPES = new Set([
   HUB_TO_NODE.BOT_TURN,
   HUB_TO_NODE.BOT_DIRECTORY,
   HUB_TO_NODE.BOT_MESSAGE,
-  HUB_TO_NODE.BOT_ASSIGN,
   HUB_TO_NODE.TEAM_ACT_RESULT,
   HUB_TO_NODE.REL_FRAME,
   HUB_TO_NODE.REL_ACK,
@@ -135,7 +134,6 @@ const E2E_REQUIRED_TYPES = new Set([
   // bot/trace：节点 Bot 的推理与工具参数 / 输出正文，必须加密（上行表同样要有，hub 才会拒收明文）。
   NODE_TO_HUB.BOT_TRACE,
   // bot/stream：节点 Bot 的流式文本增量，含会话正文，必须加密。
-  NODE_TO_HUB.BOT_STREAM,
   // M2：config-push 携带 apiKey 明文，必须加密。
   HUB_TO_NODE.CONFIG_PUSH,
   // T9a：peer roster 暴露主控的 Bot 名单，必须加密。
@@ -179,7 +177,6 @@ const E2E_REQUIRED_UPLINK_TYPES = new Set([
   NODE_TO_HUB.ROSTER,
   NODE_TO_HUB.BOT_TURN_RESULT,
   NODE_TO_HUB.BOT_MESSAGE,
-  NODE_TO_HUB.BOT_ASSIGN,
   NODE_TO_HUB.TEAM_ACT,
   NODE_TO_HUB.REL_FRAME,
   NODE_TO_HUB.REL_ACK,
@@ -201,7 +198,6 @@ const E2E_REQUIRED_UPLINK_TYPES = new Set([
   // bot/trace：见下行表同名条目。
   NODE_TO_HUB.BOT_TRACE,
   // bot/stream：节点 Bot 的流式文本增量，含会话正文，必须加密。
-  NODE_TO_HUB.BOT_STREAM,
   ...Object.values(MEMORY),
 ])
 

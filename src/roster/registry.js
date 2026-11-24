@@ -45,7 +45,6 @@ import {
   validateBotTrace,
   validateBotTurn,
   validateBotMessage,
-  validateBotAssign,
   validateTeamAct,
   validateRelFrame,
   validateRelAck,
@@ -1072,46 +1071,6 @@ export function withIngest(Base) {
             return
           }
           try { this.emit('teamAct', { ...act, nodeId }) } catch { /* a listener must not take the ingest path down */ }
-          return
-        }
-
-        case NODE_TO_HUB.BOT_ASSIGN: {
-          // Bot-to-Bot delivery across machines. The hub only carries it: to its own host, on to the
-          // target node, or back to the sender as a bounce when the target node is not connected.
-          let assign
-          try { assign = validateBotAssign(d) } catch { return }
-          if (assign.from.nodeId !== nodeId) {
-            this.log('warn', 'peer-node-mismatch', { connection: nodeId, claimed: assign.from.nodeId, frame: frame.t })
-            return
-          }
-          // Every hop is on record (audit) and told to the host, so the hub can show node-to-node exchanges it carries.
-          const relayed = (outcome) => {
-            try {
-              this.auditRecord?.('bot.assign', {
-                op: assign.op, frameId: assign.frameId, outcome,
-                from: `${assign.from.nodeId}/${assign.from.name}`, to: `${assign.to.nodeId}/${assign.to.name}`,
-                ...(assign.op === 'deliver' ? { role: assign.role, exchangeId: assign.exchangeId, chars: assign.text.length } : {}),
-              })
-            } catch { /* audit is best effort */ }
-            try { this.emit('botAssignRelayed', { frame: assign, outcome }) } catch { /* a listener must not take the ingest path down */ }
-          }
-          if (assign.to.nodeId === 'hub') {
-            relayed('to-hub')
-            try { this.emit('botAssign', assign) } catch { /* a listener must not take the ingest path down */ }
-            return
-          }
-          if (this.nodes.get(assign.to.nodeId)?.online) {
-            const sent = this.send(assign.to.nodeId, HUB_TO_NODE.BOT_ASSIGN, assign)
-            relayed(sent === false ? 'send-failed' : 'forwarded')
-            if (sent === false && assign.op === 'deliver') {
-              this.send(nodeId, HUB_TO_NODE.BOT_ASSIGN, { op: 'bounce', frameId: assign.frameId, from: assign.to, to: assign.from, reason: 'send-failed', at: Date.now() })
-            }
-            return
-          }
-          relayed('target-offline')
-          if (assign.op === 'deliver') {
-            this.send(nodeId, HUB_TO_NODE.BOT_ASSIGN, { op: 'bounce', frameId: assign.frameId, from: assign.to, to: assign.from, reason: 'offline', at: Date.now() })
-          }
           return
         }
 

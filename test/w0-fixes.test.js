@@ -47,23 +47,6 @@ test('W0-3 a bot/turn the node dropped is failed under its own exchangeId, not t
   assert.equal(results[0].error, 'bridge-down')
 })
 
-test('W0-4 a bot/assign the hub cannot forward is bounced back to its sender', async () => {
-  const { withIngest } = await import('../lib/hub/registry-ingest.js')
-  const { EventEmitter } = await import('node:events')
-  class Core extends EventEmitter {
-    constructor() { super(); this.nodes = new Map([['node010', { nodeId: 'node010', online: true }], ['node011', { nodeId: 'node011', online: true }]]); this.sent = []; this.log = () => {} }
-    send(nodeId, type, data) { this.sent.push({ nodeId, type, data }); return nodeId !== 'node010' }
-  }
-  const registry = new (withIngest(Core))()
-  const e11 = { id: 'joined:node011:e11', name: 'E11', nodeId: 'node011' }
-  const e10 = { id: 'joined:node010:e10', name: 'E10', nodeId: 'node010' }
-  registry.handleFrameFor('node011', { t: 'bot/assign', d: { op: 'deliver', frameId: 'f-1', from: e11, to: e10, role: 'request', exchangeId: 'x', text: 'hi' } })
-  const bounce = registry.sent.find(s => s.nodeId === 'node011')
-  assert.ok(bounce, 'the sender is told')
-  assert.equal(bounce.data.op, 'bounce')
-  assert.equal(bounce.data.reason, 'send-failed')
-})
-
 test('W0-5 a relay directory replay keeps the session usable; the relay saying the node connected again does not', async () => {
   const { PROTOCOL_VERSION } = await import('../lib/protocol.js')
   const registry = new NodeRegistry({ log() {} })
