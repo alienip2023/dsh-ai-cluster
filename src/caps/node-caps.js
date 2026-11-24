@@ -32,6 +32,8 @@ export const LAN_DISCOVERY_CAP = 'lan-discovery/1'
 export const PAIRING_CAP = 'pairing/1'
 /** Node has a persistent machine identity (not tied to nodeToken). */
 export const MACHINE_IDENTITY_CAP = 'machine-identity/1'
+/** Node answers bot/locate with a Bot-signed proof (lib/node/dispatch.js). */
+export const BOT_LOCATE_CAP = 'bot-locate/1'
 
 /** 两处 hello 组装（握手与��态视图）都走这里，避免其中一处漏掉新能力。 */
 export function nodeCaps(baseCaps, platform = process.platform) {
@@ -39,7 +41,7 @@ export function nodeCaps(baseCaps, platform = process.platform) {
     ...baseCaps,
     'file-transfer', 'selfcheck', 'config-sync/2', 'peer/v1', MEMORY_CAPS, BOT_MEMORY_UPDATE_CAP, BOT_PROFILE_UPDATE_CAP,
     BOT_TURN_MODE_CAP, BOT_ACTION_CAP, ROSTER_CARDS_CAP, BOT_TRACE_CAP, BOT_STREAM_CAP, BOT_ATTACH_CAP, CONFIG_MODELS_CAP,
-    LAN_DISCOVERY_CAP, PAIRING_CAP, MACHINE_IDENTITY_CAP,
+    LAN_DISCOVERY_CAP, PAIRING_CAP, MACHINE_IDENTITY_CAP, BOT_LOCATE_CAP,
     ...(platform === 'win32' ? ['desktop', 'gui'] : []),
   ]
 }

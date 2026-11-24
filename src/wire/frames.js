@@ -326,6 +326,8 @@ export const LAN_DISCOVERY_CAP = 'lan-discovery/1'
 export const PAIRING_CAP = 'pairing/1'
 /** Node has a persistent machine identity (not tied to nodeToken). */
 export const MACHINE_IDENTITY_CAP = 'machine-identity/1'
+/** Node answers bot/locate with a Bot-signed proof (lib/node/dispatch.js). */
+export const BOT_LOCATE_CAP = 'bot-locate/1'
 
 export const MEMORY = Object.freeze({
   HELLO: 'mem/hello',

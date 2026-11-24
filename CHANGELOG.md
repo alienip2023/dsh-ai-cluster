@@ -9,6 +9,17 @@
 
 ---
 
+## 0.4.33 — 2026-11-24（与 ds-bot 0.3.10-fork.112 配套）
+
+**Bot 定位：主控处理 bot/locate-result，身份自动配发**
+
+- 节点：`lib/node/bot-identities.js` 在每次名册上报时为本机 Bot 配发 ed25519 身份（首次见到时创建，按 ds-bot 本地 id 记录 `localBotId`），名册条目带 `identityId`；身份文件权限 0600，加载时校验 id 由公钥派生。
+- 新能力 `bot-locate/1`：主控只向宣告它的在线节点发 `bot/locate`。
+- 主控：`registry.locateBot(identityId)`（`lib/hub/bot-locate.js`）。每个节点独立 requestId；找到的结果须满足「公钥派生出该 Bot id」且「签名验证通过」且「回复来自收到请求的那条连接」，否则记为 rejected。返回 `locations / notHere / silent / unsupported / unsent / rejected`。
+- 协议：`validateBotLocateResult`（lib/protocol.js 与 src/wire 逐字一致），`rosterList()` 视图带 `identityId`。
+
+---
+
 ## 0.4.32 — 2026-11-24（与 ds-bot 0.3.10-fork.112 配套）
 
 **Bot 持久化：每回合写入 AgentJournal**

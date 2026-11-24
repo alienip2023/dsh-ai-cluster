@@ -412,6 +412,7 @@ test('buildNodeHello：形状正确且能过 validateHello', (t) => {
     'lan-discovery/1',
     'pairing/1',
     'machine-identity/1',
+    'bot-locate/1',
     ...(process.platform === 'win32' ? ['desktop', 'gui'] : []),
   ])
 

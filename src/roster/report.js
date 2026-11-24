@@ -93,6 +93,8 @@ export function cleanRosterBots(bots) {
     if (typeof bot.clusterBotId === 'string' && CLUSTER_BOT_ID_RE.test(bot.clusterBotId)) {
       entry.clusterBotId = bot.clusterBotId
     }
+    // The Bot's portable identity (lib/identity/bot-identity.js): what the hub locates it by.
+    if (typeof bot.identityId === 'string' && /^[0-9a-f]{16}$/.test(bot.identityId)) entry.identityId = bot.identityId
     // How the Bot looks and thinks, so its row on the hub matches the node's own page. A bad value
     // drops the field, never the Bot.
     if (typeof bot.color === 'string' && /^(#[0-9a-fA-F]{6}|[a-z][a-z0-9-]{0,15})$/.test(bot.color)) entry.color = bot.color
