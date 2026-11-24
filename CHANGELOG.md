@@ -9,6 +9,20 @@
 
 ---
 
+## 0.4.36 — 2026-11-25（与 ds-bot 0.3.10-fork.118 配套；主控与所有节点都须升级）
+
+### 新增
+- **可靠通道**（`lib/reliable-link.js`、`lib/reliable-wire.js`，见 `docs/reliable-link.md`）：主控 ↔ 节点之间恰好处理一次的消息通道。新帧 `rel/frame`、`rel/ack`（两个方向，必加密）；消息先落盘再发，收到确认才删；接收方按 id 去重；处理失败不确认；对端就绪即补发，退避 10 秒起、封顶 2 分钟，对端不在时不计时；节点之间由主控存转。宿主（ds-bot）经 bot-network 服务的 `post` / `onReliable` / `reliablePending` 使用，承载 `work/*` 与 `team/*`。
+
+### 修复
+- 节点重连后、新 E2E 会话建好之前，需加密的帧不再用旧会话密钥发出（之前会被节点静默丢弃）；主控与中继重连时的目录回放不算节点重连。
+- 节点丢弃加密的 `bot/turn` 时，bridge-down 结果按信封 id 找回真正的 exchangeId。
+
+### 移除（不兼容旧版）
+- `bot/assign` 帧（及其转发、退回、审计）与 `bot/stream` 帧、`bot-stream/1` 能力：ds-bot fork.118 改用可靠通道上的 work 帧，节点 Bot 的主控页面改为节点对话的副本。`bot/message` 保留（节点直连仍用）。
+
+---
+
 ## 0.4.35 — 2026-11-24（与 ds-bot 0.3.10-fork.115 配套；节点仍可用 0.4.34）
 
 **主控能看见节点之间的对话**
