@@ -146,11 +146,13 @@ test('collectConnectivity: read-only capabilities, config overrides, hub plus ho
   const sample = await collectConnectivity({ dshHome: '/fixture/dsh', platform: 'linux', readFile, readdir, net: fakeNet, now: () => 1234,
     config: { tunnelConfigPaths: ['custom/frpc.toml'], hubUrl: 'wss://hub.example/path?token=secret', probeHosts: ['extra.example:443', 'hub.example:443'], probeTimeoutMs: 50 } })
   assert.deepEqual(sample, { transportMode: 'direct', tunnel: { kind: 'frpc', server: 'frps.example:7000', localPort: 19387, remotePort: 29387 },
-    tunnelState: 'configured', probes: [ { target: 'hub.example:443', result: 'open', rttMs: sample.probes[0].rttMs },
-      { target: 'extra.example:443', result: 'open', rttMs: sample.probes[1].rttMs } ], sampledAt: 1234 })
+    // 本地 frpc 监听端口也会被探测（494ea67），排在 hub / 额外主机之前。
+    tunnelState: 'configured', probes: [ { target: '127.0.0.1:19387', result: 'open', rttMs: sample.probes[0].rttMs },
+      { target: 'hub.example:443', result: 'open', rttMs: sample.probes[1].rttMs },
+      { target: 'extra.example:443', result: 'open', rttMs: sample.probes[2].rttMs } ], sampledAt: 1234 })
   assert.deepEqual(reads, ['/fixture/dsh/custom/frpc.toml'])
   assert.deepEqual(dirs, ['/var/log/sakurafrp'])
-  assert.equal(connects.length, 2)
+  assert.equal(connects.length, 3)
   assert.ok(connects.every(({ host }) => host !== 'frps.example'))
   assert.equal(readFile.mock.callCount(), 1)
   assert.equal(readdir.mock.callCount(), 1)

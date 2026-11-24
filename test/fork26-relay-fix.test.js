@@ -66,14 +66,14 @@ test('B3（变异验证）：删掉 readRelayToken(config) 后断言红', () => 
 /* ── ra18-3: hubUrl 显式非空 + hasRelay 时不走 auto-infer worker ──────── */
 
 test('ra18-3: hubUrl 非空且有 relay 时不推断为 worker', () => {
-  const s = readFileSync(fileURLToPath(new URL('../lib/index.js', import.meta.url)), 'utf-8')
-  assert.ok(s.includes('hasRelay'), 'index.js 应含 hasRelay 检查')
+  const s = readFileSync(fileURLToPath(new URL('../lib/plugin/index.js', import.meta.url)), 'utf-8')
+  assert.ok(s.includes('hasRelay'), 'role 推断（lib/plugin/index.js，lib/index.js 只剩转引）应含 hasRelay 检查')
   // The logic: if hubUrl !== '' && !hasRelay → worker; else → hub
   assert.ok(s.includes('hubUrl !== \'\' && !hasRelay'), '应有 hubUrl && !hasRelay → worker 推断')
 })
 
 test('ra18-3（变异验证）：删除 hasRelay 守卫后 hub 有 relay 也被推断为 worker', () => {
-  const s = readFileSync(fileURLToPath(new URL('../lib/index.js', import.meta.url)), 'utf-8')
+  const s = readFileSync(fileURLToPath(new URL('../lib/plugin/index.js', import.meta.url)), 'utf-8')
   // Mutant: remove hasRelay from the condition
   const mutant = s.replace('hubUrl !== \'\' && !hasRelay', 'hubUrl !== \'\'')
   // Real code has the guard

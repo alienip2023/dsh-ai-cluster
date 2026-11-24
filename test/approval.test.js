@@ -22,8 +22,8 @@ import { HUB_TO_NODE, TASK_STATUS, TERMINAL_STATUS, validateTaskStart } from '..
  * 1. 协议层：approval 缺省语义
  * ══════════════════════════════════════════════════════════════════ */
 
-test('validateTaskStart：exec 缺省 manual（保守默认），agent 缺省 auto', () => {
-  assert.equal(validateTaskStart({ taskId: 't1', goal: 'g', mode: 'exec' }).spec.approval, 'manual')
+test('validateTaskStart：exec / agent 缺省都是 auto（AC 不默认审批）', () => {
+  assert.equal(validateTaskStart({ taskId: 't1', goal: 'g', mode: 'exec' }).spec.approval, 'auto')
   assert.equal(validateTaskStart({ taskId: 't2', goal: 'g', mode: 'agent' }).spec.approval, 'auto')
   // mode 省略 = agent
   assert.equal(validateTaskStart({ taskId: 't3', goal: 'g' }).spec.approval, 'auto')
@@ -32,8 +32,10 @@ test('validateTaskStart：exec 缺省 manual（保守默认），agent 缺省 au
 test('validateTaskStart：显式传值双向覆盖缺省', () => {
   assert.equal(validateTaskStart({ taskId: 't1', goal: 'g', mode: 'exec', approval: 'auto' }).spec.approval, 'auto')
   assert.equal(validateTaskStart({ taskId: 't2', goal: 'g', mode: 'agent', approval: 'manual' }).spec.approval, 'manual')
-  // 坏值回落缺省（exec → manual）
-  assert.equal(validateTaskStart({ taskId: 't3', goal: 'g', mode: 'exec', approval: 'yes' }).spec.approval, 'manual')
+  // 坏值回落缺省（auto）
+  assert.equal(validateTaskStart({ taskId: 't3', goal: 'g', mode: 'exec', approval: 'yes' }).spec.approval, 'auto')
+  // 显式 manual 仍然生效
+  assert.equal(validateTaskStart({ taskId: 't4', goal: 'g', mode: 'exec', approval: 'manual' }).spec.approval, 'manual')
 })
 
 /* ══════════════════════════════════════════════════════════════════
@@ -241,17 +243,21 @@ function setupUi(t) {
   return { ...env, call }
 }
 
-test('UI dispatch：exec 缺省 manual（面板与 remote_task 同一缺省语义）', async (t) => {
+test('UI dispatch：exec / agent 缺省都是 auto 立即派发；显式 manual 才挂起', async (t) => {
   const { registry, frames, call } = setupUi(t)
   const r = await call('dispatch', 'POST', { node: 'n1', goal: 'echo hi', mode: 'exec' })
   assert.equal(r.status, 200)
-  assert.equal(r.json.approval, 'manual')
-  assert.equal(registry.getTask(r.json.taskId).status, TASK_STATUS.PENDING_APPROVAL)
-  assert.equal(frames.length, 0, '挂起期间不派帧')
-  // agent 缺省 auto：立即派
+  assert.equal(r.json.approval, 'auto')
+  assert.notEqual(registry.getTask(r.json.taskId).status, TASK_STATUS.PENDING_APPROVAL)
+  assert.equal(frames.length, 1, 'exec 任务缺省不再卡在审批，立即派发')
   const r2 = await call('dispatch', 'POST', { node: 'n1', goal: '做点事', mode: 'agent' })
   assert.equal(r2.json.approval, 'auto')
-  assert.equal(frames.length, 1, 'agent 任务应立即派发')
+  assert.equal(frames.length, 2)
+  // 显式要求审批仍然有效
+  const r3 = await call('dispatch', 'POST', { node: 'n1', goal: 'rm -rf x', mode: 'exec', approval: 'manual' })
+  assert.equal(r3.json.approval, 'manual')
+  assert.equal(registry.getTask(r3.json.taskId).status, TASK_STATUS.PENDING_APPROVAL)
+  assert.equal(frames.length, 2, '显式 manual 挂起期间不派帧')
 })
 
 test('UI 路由：approve 的 404 / 409 / 成功 / 405', async (t) => {

@@ -253,7 +253,7 @@ test('S62-fatal-hub-identity: a hub whose fingerprint is not the pinned one stop
   assert.equal(tr.stopped, true)
   assert.deepEqual(rec.fatal, [{ code: 'hub-identity', attempts: 0 }])
   assert.ok(rec.errors.some((m) => m.includes('hub 身份验证失败')), 'the original error text is unchanged')
-  assert.deepEqual(rec.lines, ['[dsh-ai-unified] node=n1 event=fatal code=hub-identity attempts=0'])
+  assert.deepEqual(rec.lines, ['[dsh-ai-cluster] node=n1 event=fatal code=hub-identity attempts=0'])
   for (const line of rec.lines) assert.equal(/mismatch|hubfp1-|fingerprint|ws:\/\//.test(line), false)
 })
 
@@ -264,13 +264,13 @@ test('S62-fatal-e2e-identity: a hub/e2e answer with no verified hub identity sto
   assert.equal(tr.stopped, true)
   assert.deepEqual(rec.fatal, [{ code: 'e2e-identity', attempts: 0 }])
   assert.ok(rec.errors.some((m) => m.includes('hub 身份未验证')), 'the original error text is unchanged')
-  assert.deepEqual(rec.lines, ['[dsh-ai-unified] node=n1 event=fatal code=e2e-identity attempts=0'])
+  assert.deepEqual(rec.lines, ['[dsh-ai-cluster] node=n1 event=fatal code=e2e-identity attempts=0'])
 })
 
 test('S62-fatal-render: the two new codes are whitelisted; anything else is still dropped', () => {
-  assert.equal(renderLifecycleLine('n', 'fatal', { code: 'hub-identity', attempts: 0 }), '[dsh-ai-unified] node=n event=fatal code=hub-identity attempts=0')
-  assert.equal(renderLifecycleLine('n', 'fatal', { code: 'e2e-identity', attempts: 0 }), '[dsh-ai-unified] node=n event=fatal code=e2e-identity attempts=0')
-  assert.equal(renderLifecycleLine('n', 'fatal', { code: 'hub-identity-detail: pin ws://x', attempts: 0 }), '[dsh-ai-unified] node=n event=fatal attempts=0')
+  assert.equal(renderLifecycleLine('n', 'fatal', { code: 'hub-identity', attempts: 0 }), '[dsh-ai-cluster] node=n event=fatal code=hub-identity attempts=0')
+  assert.equal(renderLifecycleLine('n', 'fatal', { code: 'e2e-identity', attempts: 0 }), '[dsh-ai-cluster] node=n event=fatal code=e2e-identity attempts=0')
+  assert.equal(renderLifecycleLine('n', 'fatal', { code: 'hub-identity-detail: pin ws://x', attempts: 0 }), '[dsh-ai-cluster] node=n event=fatal attempts=0')
 })
 
 test('S62-fatal-unaffected: a transient identity-less welcome (no pin configured) does not emit fatal', () => {
@@ -428,7 +428,7 @@ test('stability: node heartbeat timeout replaces the socket and clears the old i
   const old = tr.conn
   const timer = tr.hbTimer
   old.socket.pause()
-  tr.lastPongAt = Date.now() - 46_000
+  tr.lastPongAt = Date.now() - (tr.heartbeatTimeoutMs + 1000)
   await waitFor(() => rec.online === 2, 'recovered from missing pong')
   assert.equal(timer._destroyed, true)
   assert.notEqual(tr.conn, old)

@@ -3,9 +3,9 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { bindRosterReport } from '../../src/roster/report.js'
-import { withIngest } from '../../src/roster/registry.js'
-import { NODE_TO_HUB } from '../../src/wire/index.js'
+import { bindRosterReport } from '../../lib/roster-report.js'
+import { withIngest } from '../../lib/hub/registry-ingest.js'
+import { NODE_TO_HUB } from '../../lib/protocol.js'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 

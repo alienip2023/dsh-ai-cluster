@@ -18,7 +18,9 @@ import { NODE_TO_HUB } from '../lib/protocol.js'
 import { E2E_MARKER } from '../lib/e2e.js'
 
 const PAYLOAD = () => ({ providers: [{ id: 'alpha', api: 'openai-completions', baseURL: 'https://private.example/v1', apiKeyEnv: 'ALPHA_KEY', apiKey: 'sk-n60-LEAK-0123456789', models: [{ id: 'm1', name: 'M1' }] }], defaultModel: 'alpha/m1' })
-const fakeE2E = () => ({ sealFrame: (_type, _id, d) => ({ e2e: E2E_MARKER, inner: d }) })
+// The hub refuses plaintext content frames once a session exists, so the fake session also opens what it seals.
+const fakeE2E = () => ({ sealFrame: (_type, _id, d) => ({ e2e: E2E_MARKER, inner: d }), openFrame: (_type, _id, env) => env.inner })
+const sealed = (d) => ({ e2e: E2E_MARKER, inner: d })
 
 function setup({ throwingLog = false } = {}) {
   const logs = []
@@ -32,7 +34,7 @@ function setup({ throwingLog = false } = {}) {
   registry.on('configSyncRequest', (ev) => sync.handleSyncRequest(ev))
   const events = []
   registry.on('configAck', (ev) => events.push(ev))
-  const frame = (nodeId, d) => registry.handleFrameFor(nodeId, { t: NODE_TO_HUB.CONFIG_ACK, d })
+  const frame = (nodeId, d) => registry.handleFrameFor(nodeId, { t: NODE_TO_HUB.CONFIG_ACK, d: sealed(d) })
   const push = (nodeId) => registry.handleFrameFor(nodeId, { t: NODE_TO_HUB.CONFIG_SYNC_REQUEST, d: { appliedRevision: 0 } })
   const ackLogs = () => logs.filter((l) => /node (rejected|applied) config/.test(l.msg))
   return { registry, logs, events, frame, push, ackLogs, revision: computeRevision(PAYLOAD()) }

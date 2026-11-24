@@ -9,6 +9,221 @@
 
 ---
 
+## 0.4.33 — 2026-11-24（与 ds-bot 0.3.10-fork.112 配套）
+
+**Bot 定位：主控处理 bot/locate-result，身份自动配发**
+
+- 节点：`lib/node/bot-identities.js` 在每次名册上报时为本机 Bot 配发 ed25519 身份（首次见到时创建，按 ds-bot 本地 id 记录 `localBotId`），名册条目带 `identityId`；身份文件权限 0600，加载时校验 id 由公钥派生。
+- 新能力 `bot-locate/1`：主控只向宣告它的在线节点发 `bot/locate`。
+- 主控：`registry.locateBot(identityId)`（`lib/hub/bot-locate.js`）。每个节点独立 requestId；找到的结果须满足「公钥派生出该 Bot id」且「签名验证通过」且「回复来自收到请求的那条连接」，否则记为 rejected。返回 `locations / notHere / silent / unsupported / unsent / rejected`。
+- 协议：`validateBotLocateResult`（lib/protocol.js 与 src/wire 逐字一致），`rosterList()` 视图带 `identityId`。
+
+---
+
+## 0.4.32 — 2026-11-24（与 ds-bot 0.3.10-fork.112 配套）
+
+**Bot 持久化：每回合写入 AgentJournal**
+
+- `lib/bot-turn.js`：在 `receiver` 调用前后注入 `AgentJournal` 录制：
+  - `turn/start` — 记 exchangeId、textDigest、fromBotId
+  - `step/model`、`step/tool`、`step/tool-result` — 从 `result.trace.items` 派生
+  - `turn/end` / `turn/fail` — 覆盖正常结束与异常路径，`finally` 中 `close()`
+  - 崩溃后 `findIncomplete()` 可返回未结束回合供恢复使用
+- `lib/network/pairing/pairing-client.js`：修复 ESM 不兼容的 `require('node:crypto')`，改为顶层 `import { createHmac }`
+
+---
+
+## 0.4.31 — 2026-11-24（与 ds-bot 0.3.10-fork.111 配套）
+
+**Step 1：Network Layer — 机器身份、LAN 发现、配对码、守护进程**
+
+- `lib/identity/machine-identity.js`：持久 ed25519 机器身份，machineId 由公钥派生，重启/重装不变；`MachineIdentity` 类提供 sign/verify。
+- `lib/network/discovery/lan-beacon.js`：UDP multicast 224.0.0.251:8129，同网段零配置发现；15s 广播，45s TTL，emit `peer`/`peer-lost` 事件。
+- `lib/network/pairing/trust-store.js`：配对关系持久化到 `~/.dsh/trust.json`，存 pubKey + secret + alias。
+- `lib/network/pairing/pairing-server.js`：6 位配对码服务，ws://0.0.0.0:8125，5 分钟有效，DH 派生 shared secret。
+- `lib/network/pairing/pairing-client.js`：输入配对码发起握手，完成后写入 TrustStore。
+- `lib/network/transport/router.js`：集成 beacon + trust-store + peer-link，LAN 发现自动更新 peer router directory 和 credentials。
+- `bin/dsh-node-daemon.mjs`：守护进程，指数退避重启（1s→60s），支持 `install`（launchd/systemd）/ `start` / `stop` / `status`。
+
+**Step 2：Bot 持久化层**
+
+- `lib/identity/bot-identity.js`：Bot 独立于机器的 ed25519 身份，身份文件可跨机器迁移。
+- `lib/persist/agent-journal.js`：append-only 步骤日志（turn/start, step/model, step/tool, turn/end），`findIncomplete()` 支持崩溃续跑。
+- `lib/persist/checkpoint.js`：原子状态快照（tmp+rename），load/save 轮转。
+
+**协议扩展**
+
+- `NODE_TO_HUB`：新增 `MACHINE_BEACON`（`machine/beacon`）、`PEER_PAIRED`（`peer/paired`）。
+- `HUB_TO_NODE`：新增 `PEER_DIRECTORY_V2`（`peer/directory-v2`）、`BOT_LOCATE`（`bot/locate`）。
+- 新能力位：`LAN_DISCOVERY_CAP`（`lan-discovery/1`）、`PAIRING_CAP`（`pairing/1`）、`MACHINE_IDENTITY_CAP`（`machine-identity/1`），已加入 `nodeCaps()`。
+- `src/caps/node-caps.js` 同步以上三个常量和 `nodeCaps()` 更新。
+
+**E2E 修复（来自 0.4.30 hotfix）**
+
+- `node-registry.js`：`bot/turn` 发送前检查 E2E 状态，未建立时立刻 false（bridge-down）。
+- `transport.js`：节点丢弃加密帧时通过明文通道回告 hub（`e2e-not-ready`）。
+- `registry-ingest.js`：hub 收到 `e2e-not-ready` 时合成 `botTurnResult{ok:false,error:'bridge-down'}` 通知 sender。
+
+## 0.4.30 — 2026-11-24（与 ds-bot 0.3.10-fork.110 配套）
+
+- 新增帧 `bot/stream`（`NODE_TO_HUB.BOT_STREAM`）和能力 `bot-stream/1`：节点 Bot 在回合中把模型的文本增量实时转发给主控，主控逐字渲染，体验与本地 Bot 一致。旧主控不认识此帧；节点仅在主控 welcome 宣告 `bot-stream/1` 后才发。帧列入 E2E_REQUIRED（加密传输）。
+- `registry-ingest.js` 新增 `botStream` 事件 handler（`case NODE_TO_HUB.BOT_STREAM`）。
+- `bot-turn.js`：receiver 的 `control` 对象新增 `control.stream.start(ctx, sessionId)`，接收方挂接 `agent/assistant-stream` 事件、节流 80ms 发 `bot/stream` 帧；结果送出前自动 flush。
+- `lib/protocol.js` 新增 `validateBotStream`；`src/wire/validate.js` 同步。
+- `src/caps/node-caps.js` 新增 `BOT_STREAM_CAP`，加入 `HUB_CAPS` 和 `nodeCaps()`。
+
+## 0.4.29 — 2026-11-24（与 ds-bot 0.3.10-fork.109 配套）
+
+- 安全加固：roster Bot id 截断上限 80→200 字符；`D2` `listenersOf`/`commandLine` 改异步（`execFile`），防事件循环阻塞；`registry` 新增 `bufferedBytesOf`/`drainNode` 背压接口。
+
+## 0.4.28 — 2026-11-24（与 ds-bot 0.3.10-fork.108 配套）
+
+- 节点 hello 新增 `acVersion`（这台节点运行的 AC 版本，格式不对则丢弃）和能力 `config-models/1`（节点会把模型的 input / contextWindow / reasoningEfforts 等落盘，见 0.4.27）。主控据此精确判断哪台节点的 AC 不够新；`node.online` 审计带上 `acVersion`。
+
+## 0.4.27 — 2026-11-23（节点模型能力不再丢失；ds-bot 无需改动）
+
+- **问题**：hub 推送配置时，`lib/node/config-sync.js` 只把每个模型落成 `{id, name}`（源码里的注释就写着「模型字段补全在 P1b-2 才由节点落盘」，这一步一直没做）。主控（ds-bot `config-v2.js`）发来的 `contextWindow`、`maxTokens`、`input`、`reasoningEfforts` 都被丢掉，pi-ai 对没声明 `input` 的模型按「只有文本」处理，所以节点上的模型读不了图片，也没有思考档位。
+- **处理**：节点按 pi-ai 自己的 schema 校验后落盘：`contextWindow` / `maxTokens`（正整数）、`input`（非空、只含 text / image、不重复）、`reasoningEfforts`（`false`，或档位 ∈ off/minimal/low/medium/high/xhigh/max、除 off 外取值为非空字符串、至少一个 off 以外的档位）；provider 级落 `displayName` 和 `streamIdleTimeoutMs`。**不合格的字段整个丢掉**（回到 pi-ai 的默认），不写半截——pi-ai 对写错的字段会拒绝整条路线，节点的 LLM 就起不来。`compat` 和 `headers` 不落盘。
+- **摘要包含这些字段**：模型能力变了，节点会按「需要重启」处理（DSH 启动时才读模型）；只有 `{id, name}` 的模型摘要与旧版逐字节相同，升级本身不会引发多余的重启。
+- 另：`model-catalog.js` 读取的是运行时目录里的 `reasoningEfforts` 数组 `[{id, name}]`，与配置文件里的映射 `{level: 取值}` 不是同一处代码消费的两种形状，互不影响；节点配置落盘之后，运行时目录会带上这些档位，主控的模型选择器因此能看到它们。
+
+## 0.4.26 — 2026-11-23（D2：监听端口被自家旧实例占住；附件发送加固）
+
+- **附件不再静默变成纯文字**：节点上的 ds-bot 如果没有注册 `bot/attach` 接收方（旧版 ds-bot 配新 AC），带附件的 `bot/turn` 现在被拒绝并回 `bot-attach-no-receiver`；`bot/turn` 校验失败（比如附件清单不合格）时，除了错误帧，还会回一条失败的 `bot/turn-result`，页面立刻说明原因，不再等满回合超时。
+- **附件加固**：`bot/attach` 在节点没有 E2E 会话时不再发出（原来会发明文，用户的图片在链路上可读），发送方得到失败并提示重发；带附件的 `bot/turn` 之后两分钟内，同一节点的其它回合也走主控链路，避免走 peer-direct 抢在带附件的回合前面被节点先处理。
+
+- **问题**：用户 ⌘Q 后重开，旧宿主进程没有退出，继续占着 hub 的监听端口（已复现三次，每次要人工 kill -9），新宿主的 hub 一直绑不上，节点全部掉线。已有的退避重试只会等。
+- **处理**：hub 监听成功后写一份锁文件（`~/.dsh/ai-cluster/hub-<端口>.lock.json`：pid、端口、profile 标记、版本、启动时间），正常卸载时清除。绑不上端口并且已经等满 30 秒后，只有**同时满足**下列全部条件才会动手，缺任何一项（或拿不到信息）都继续等：
+  - 锁里记着这个端口和 pid，pid 活着、不是自己也不是自己的祖先；
+  - 同一个 profile（`DSH_HOME` / `DSH_PROFILE` 一致），命令行含 `DeepSeek Harness`；
+  - `lsof` 确认这个 pid 真的在监听这个端口（防 pid 复用）；
+  - 它比当前进程启动得更早；
+  - 它对 hub 自己的健康检查接口**没有任何回应**（试两次，各 5 秒，间隔 2 秒，忙但健康的实例来得及回应）——一个健康的实例会回应，绝不会被杀；
+  - 动手时先 SIGTERM，等 3 秒，仍活着才 SIGKILL；一次监听最多回收 3 次。
+- profile 判定带上实际的 profile 目录（桌面宿主的环境里没有 `DSH_HOME` / `DSH_PROFILE`，不带它，同一用户的 desktop / safe / web 几个 profile 会被当成同一个）；`ps` / `lsof` 有 5 秒超时；回收途中插件被卸载就不再动手；"比自己早启动"用进程真实启动时间判断。
+- 只在 macOS / Linux 生效（Windows 没有 `ps` / `lsof`，行为不变）；任何一步出错只记 warn，继续原来的等待。
+- 日志：`hub: reclaimed listen port from a stale hub instance`（`pid`、`port`、`reason`、`signal`）；对方仍有回应时记 `hub: the port holder still answers, not reclaiming`。
+
+## 0.4.25 — 2026-11-23（主控向节点 Bot 发图片/文件；需要 ds-bot 配套版本）
+
+- **新帧 `bot/attach`（主控 → 节点，能力 `bot-attach/1`）**：用户消息里的图片/文件按块（base64，单块 ≤ 1,100,000 字符，每个附件 ≤ 40 块、≤ 20 MiB，每回合 ≤ 8 个）送给节点 Bot。节点校验后在同一个 tick 内同步调用 `ctx.get('remote-agent:bot-attach')`（由副机 ds-bot 提供），没有结果帧；接收方同步抛错或返回 rejected promise 都被吞掉，不影响后面的帧；没有接收方只记一条日志。校验失败回 `error` 帧（`bot-attach-*`）。整帧加密：三份「必须加密」表都加了它，E2E 会话建立后明文的 `bot/attach` 被节点拒收。
+- **`bot/turn` 新增可选 `attachments` 清单**（≤ 8 条，`{ index 0..7, name, kind: image|file, mediaType?, bytes 1..20 MiB, sha256, chunks 1..40 }`）：校验器白名单收下，`remote-agent:bot-turn` 接收方原样拿到 `turn.attachments`。任何一条不合格整个回合被拒（`bot-turn-attachments-invalid`），不悄悄丢附件；缺省或空数组等于没有这个字段，旧行为不变。清单里重复的 `index` 也算不合格。
+- **帧顺序**：主控发完分块再发 `bot/turn`，节点从解密到分发全程同步，`bot/attach` 的接收方调用与分发同一 tick。**带附件的 `bot/turn` 现在走主控链路，不走节点直连**（直连是另一条连接，大分块可能被它超车）；不带附件的回合仍走直连，行为不变。
+- **能力**：节点 hello 新增 `bot-attach/1`（主控 welcome 不带，与 `bot-action/1` 一样只有节点上报）。
+- **配套**：ds-bot 的节点 Bot 附件功能需要 AC 0.4.25；与旧节点（无 `bot-attach/1`）混用时由 ds-bot 读能力后如实提示升级。
+- 测试：`test/bot-attach.test.js`（校验器、处理方、两份 dispatch 的顺序、真实 E2E 会话与真实 NodeTransport 的明文拒收、最大分块封密后的帧大小、真实主控 + 两个开启直连的节点的端到端发送路径）。
+
+## 0.4.24 — 2026-11-23（D5 真正的根因；ds-bot 0.3.10-fork.102 即可配合）
+
+- **短任务收尾开销（压测 D5）**：0.4.23 把任务收尾的工作区快照改成异步，上机复测没有改善——因为改错了地方。真正的开销在交接卡的产物清单（`buildManifest`）：它给工作区里**每个** final 文件算 sha256，节点工作区堆着上百个历史包（本次 125 个 final）时，一条 3 秒任务收尾要哈希上百 MB，N 条任务同时收尾就是 N 倍，所以额外开销随并发线性增长（5 并发约 2 秒，10 并发约 4 秒）。现在按「路径 + 大小 + mtime」缓存哈希结果（和 git 的 index 同样的判断），同一文件正在被别的任务哈希时共用那一次读取；mtime 距今不足 2 秒的文件不进缓存，避免漏掉刚改过的内容。实验室里 10 个并发的清单构建从 692 ms 降到 8 ms。节点重启后第一波任务仍会读一遍文件。
+- **收尾各阶段耗时可见**：任务日志里新增一行 `[system] timings snapshot=…ms run=…ms manifest=…ms diff=…ms`，慢尾巴能分清是命令慢还是收尾慢。
+
+## 0.4.23 — 2026-11-23（压测第三轮修复；ds-bot 0.3.10-fork.102 即可配合）
+
+- **回合结束不再取消 exec 任务**：`agent/turn-stopping` 钩子原先会取消该会话派出的所有在跑任务，30 分钟的命令任务在派出它的回合结束的同一毫秒被取消，与 `cluster_task` 说明里「任务在副机持久运行」矛盾。现在只取消 `mode=agent` 的任务（派出它的会话停了，汇报没人收）；`mode=exec` 的命令任务继续跑，要停用 `cluster_cancel`。工具说明已写明。
+- **审计补 `node.online` 与 `node.reconnected`**：之前只有 `node.offline`，恢复时刻只能靠节点日志反推。`node.online` 每次上线都记（`reconnected` 标明是否回来的节点）；`node.reconnected` 带 `downMs`（离开了多久）和 `lastReason`（当初为什么离开）。
+- **重连等待封顶 10 秒**：原先指数退避升到 30 秒（加抖动最长约 36 秒），断网 150 秒的节点在网络恢复后还要多等约 34 秒。现在 1、2、4、8 秒后封顶 10 秒（仍带 20% 抖动）；重复节点（duplicate-node）重试的节奏不变。
+- **任务收尾的工作区快照改为异步**：原先全程同步读盘，工作区堆了历史文件时每条任务收尾占住节点事件循环数秒，并发越高越慢，节点心跳和 Bot 回合也被一起卡。现在每步 I/O 让出事件循环，遍历顺序和内容库上限不变。
+
+## 0.4.22 — 2026-11-23（断桥修复；ds-bot 0.3.10-fork.101 即可配合）
+
+- 主控判定直连节点失联只看应用帧，不认 WS pong：节点事件循环卡住一分钟（Windows 压力下）就被主控强拆链路，在途回合随之标为「桥已断」。现在：WS pong / ping / 任何消息都算存活证据；静默上限由 60 秒放宽到 8 个心跳（120 秒，`limits.directTimeoutMs` 可配）。
+- 事件循环停顿补偿：节点、主控、主控到中继的心跳定时器，发现自己迟到（说明本进程被卡住，对端的回复还排在队尾）就放过这一轮，并记 warn（节点端另发 `stall` 事件）。
+- 节点心跳超时默认由 3 个心跳改为 6 个（90 秒）；主控到中继同为 90 秒。
+- 所有 WS 套接字开启 TCP keepalive（30 秒），真正消失的对端交给系统探测，不靠被卡住的定时器。
+
+## 0.4.21 — 2026-11-23（配套 ds-bot 0.3.10-fork.101）
+
+- 名册卡片新增不透明的 `data`（JSON 字符串，≤6000 字符，超限整体丢弃；超出帧预算时与正文一起裁掉），主控据此显示并回答节点 Bot 的表单（show_view）；答案走 `bot/action` card-answer 的 `text`（JSON）。
+- 名册里的 Bot 新增 `color`、`avatarShape`、`effort`（非法值只丢该字段，不丢 Bot），主控的节点 Bot 行与节点本机一致。
+- `bot/action` 按 requestId 去重：同一 requestId 重复到达只执行一次并原样回答两次，失败的尝试不记；接收器多收到 `requestId`。
+
+- 新增 `bot/trace`（节点 → 主控，能力 `bot-trace/1`）：节点 Bot 回合里的思考过程与工具步骤送到主控页面，和本地 Bot 的页面一致。回合进行中分批（节流）发出，回合结束时在 `bot/turn-result` 之前再发一帧 `final:true`（带全部步骤，修补丢掉的中间帧）；步骤带回合内单调序号 `i`，主控按 `i` 去重、排序；文本有长度上限（文末写明截掉多少字），条数 / 字节超限丢弃的数量记在 `omitted` / `clipped`；整帧加密（两张必须加密表都有）。
+- `bot/turn` 接收器多一个参数 `{ enabled, trace(payload) }`，返回值里的 `trace: { items, omitted? }` 作为最终步骤；hub welcome 的 `caps` 新增 `bot-trace/1`，节点 hello 的 `caps` 新增 `bot-trace/1`。节点只在 hub 宣告该能力后才发 `bot/trace`，来自对等节点的回合与重放路径不发。
+- hub 摄入校验 `bot/trace`（`validateBotTrace`，`lib/protocol.js` 与 `src/wire` 两份一致），发出 `botTrace` 事件；坏帧只记 warn 与审计，不让回合失败；原样重放只投递一次。
+
+## 0.4.20 — 2026-11-23
+
+- 副机重发回合答案的预算由约 2 分钟延长到约 30 分钟：链路断开一阵子，答案仍能送达。
+- 节点 hello 新增能力 `bot-turn-mode/1`、`bot-action/1`、`roster-cards/1`，让 ds-bot 知道这台节点能做什么（见 README「协议帧与能力」）。
+- `NodeRegistry.markOffline` 把 `node.offline` 连同原因写进审计（高负载下的心跳超时看起来像崩溃）。
+- 配套 ds-bot 0.3.10-fork.101。
+
+### 审计修复（分支 audit/ac-fixes；版本号未动，随下一次发版）
+
+- **上行 E2E 闸**：会话建立后，节点上行的明文会话/控制帧（任务、名册、各类 `*-result`、审批、记忆、`fs/res` 等）一律丢弃，写 `ingest.rejected` 审计并回 `e2e-required`；握手帧、`hello`/`ping`/`pong`/`error`、`hub/config-sync-request`、遥测不受限，会话建立前不闸。节点在 e2e 握手窗口内先排队内容帧、会话就绪后封密发出（旧 hub 不应答则 5 秒后明文放行）。
+- 必须加密的帧清单补全：`node/model-sync`（及回执）、`hub/approval-answer`、`node/approval-request`/`-settled`、`bot/delete`、全部 `bot/*-result`、`node/config-result`；新增测试保证凡文档标注「必须加密」的帧都在清单里。
+- 心跳：节点收到**任何**入站帧都算存活，超时可配（`heartbeatTimeoutMs`，默认 = 3 倍心跳间隔，不低于 45 秒），忙碌的 Windows 节点不再因 pong 排队而被自己断开。
+- 名册帧有 512 KiB 字节预算（原最坏约 5 MB，超过 4 MiB 的 ws 帧上限会断开节点）：每 Bot 最多 8 张卡片、正文 2000 字，超预算按「卡片正文 → 技能正文 → 最旧任务 → 卡片」裁，不丢 Bot，帧里 `trimmed` 如实列出；内容未变的名册 30 秒内不重发。
+- 主控发出的 `roster` 事件与存下来的名册是同一份清洗后的列表；被清洗掉的键名/条目有限频的 warn。
+- `bot/create|history|update|delete|stop|action` 的回执校验失败不再静默：warn + 审计，requestId 可解析时立刻以 `ok:false` 结算请求方，不再等超时。
+- `bot/stop-result`、`bot/delete-result` 事件带上认证后的 `nodeId`；`peerReplyTo` 只认 `peerTurnOrigins` 里登记过的来源。
+- 作业环：节点掉线时在途回合保持 `running` 并标 `linkLost`（`botTurnStatus` 可见），晚到的真结果仍能结算；running 条目不再被 10 分钟 TTL 淘汰（2 小时硬超时，判失败并审计）；linkLost 的回合不占准入名额。
+- `node.offline` 审计的 `inFlightTurns` 改为统计该节点 running 的 bot 回合（原先误数任务）。
+- `turn-seq`：原子写（临时文件 + rename）、状态文件不可读时告警并从时间下限重新起号，不再回到 0。
+- 面板 `uiNodeView` 恢复 `hostname`/`peerHost`（拓扑图地址、LAN 判定）。
+- `lib/protocol.js` 与 `src/wire` 对齐：`validateBotDirectory` 在 src 侧补上 `rooms`；`lib/node/dispatch.js` 改用共享的 `validateModelSync`；新增漂移测试。
+- 测试/文档：phase1 名册测试改测线上文件；修一个 1/4096 概率的 e2e 篡改用例；过期用例按现行设计更新；文档与注释改为 exec 缺省 `auto`；发版检查的版本从 package.json 读取；新增 CHANGELOG 与 package.json 版本一致性检查。
+
+## 0.4.19 — 2026-11-23
+
+- 新增 `bot/action`（主控 → 节点）与 `bot/action-result`：`card-answer`、`task-stop`、`task-send`、`task-start`；加密、校验，帧无效时也会回错误。
+- `bot/turn` 可带 `mode`（`steer` | `queue`），节点收到后交给接收器；旧节点忽略 `mode`，也没有 `bot/action` 接收器。
+- 名册帧经 `cleanRosterBots` 带出清洗后的卡片（审批、提问、技能提议、规则…），旧主控会丢弃 `cards`。
+- 配套 ds-bot 0.3.10-fork.100。
+
+## 0.4.18 — 2026-11-23
+
+- 修复：名册里的运行中任务摘要（id/title/status/startedAt，仅运行态，最多 8 条）此前被 `cleanRosterBots` 白名单挡掉，ds-bot 的 `nodeTasks` 永远为空；现在原样带过，空列表也保留。
+
+## 0.4.17 — 2026-11-23
+
+- 版本提升到 0.4.17；发版检查的版本钉与 `lib/client.js` 哈希跟进。
+
+## 0.4.16 — 2026-11-22
+
+- 修复 `bot/turn-result` 被静默丢弃：主控每条丢弃路径都写审计（`ingest.rejected` / `ingest.forwarded` / `ingest.turn-result`）并告警；仍能认出回合的无效帧会回一个明确的失败结果（`ingest-rejected:<原因>`），冒名帧只审计不替人判失败；peer 转发失败落回本地投递。
+- 副机的结果帧不再是发了就忘：`send() === false`（长回合跨重连时链路断着）会记录并有界退避重发（当时约 2 分钟），成功发送记录 exchangeId/seq/attempt。
+- **缺省审批改为 `auto`**：`exec` 不再默认 `manual`，两个校验器缺省都是 `auto`；显式 `approval:"manual"` 仍会挂起任务。
+- 补上 `bot/steer` 在 `src/wire`、任务分发与 E2E 必加密清单里的缺口；恢复 SSH 探测卡与部署步骤视图。
+
+## 0.4.15 — 2026-11-21
+
+- 修复：`bot/steer`（插队）帧在插件的 `task-run/dispatch.js` 里没有处理分支，插件形态的节点收不到。
+
+## 0.4.14 — 2026-11-21
+
+- 修复：副机的 `cluster_selfcheck` 等异步文件操作在非 peer 模式下返回未决的 Promise（序列化成 `{}`），现在无条件 await。
+- 团队屏的 Bot 创建表单新增模板选择器（按分类分组）。
+
+## 0.4.13 — 2026-11-21
+
+- `systemPrompt.context` 顺序 300 → 310，避开第三方插件常用的整数；`cluster_agents` 在启用 sessionGate 时只列当前会话的任务（`sessionId` 为空的旧任务仍可见）。
+
+## 0.4.12 — 2026-11-21
+
+- 按 Cordis 习惯优化工具：9 个只读工具声明 `isConcurrencySafe`，`cluster_selfcheck`/`cluster_ps`/`cluster_port` 声明 `timeoutMs`；系统提示注入在线节点清单；agent 回合被停止时取消它派出的在途任务（尽力而为）。
+
+## 0.4.11 — 2026-11-21
+
+- Bot 创建表单新增人才目录选择器（选中后填入名称/角色/指令）；无目录文件时使用内置的 10 个默认人才。
+
+## 0.4.10 — 2026-11-21
+
+- 拓扑图重做：纯力导向布局（保证不重叠）、双环旋转与数据包动画、扫描线样式。
+
+## 0.4.9 — 2026-11-21
+
+- 修复 0.4.8 测试报告里剩余的 18 个回归（三屏壳层契约、版本断言）。
+
+## 0.4.8 — 2026-11-21
+
+- 修复 0.4.7 测试报告中的回归：恢复 SSH 探测卡的安装按钮、面板更新为三屏（节点/任务/团队）、团队屏 `listTotal` 的暂时性死区。
+
+## 0.4.7 — 2026-11-21
+
+- 节点上的 ds-bot 工具审批中继到主控面板：新增 `node/approval-request`、`hub/approval-answer`、`node/approval-settled`（均加密）及校验器；面板新增任务四象限、目标面板（`/goals`）与 Bot 审计面板（`/bot-audit`，200 条环形缓冲）。
+
 ## 0.4.6 — 2026-11-21
 
 - 主机独立监听不再在 4 次快速重试（200/400/600ms）后放弃：端口仍被占用时转低频等待（5s/10s/20s，之后每 30s），端口空出后自动接上，直到插件卸载。此前老宿主进程残留占着 19387 时，新宿主永远绑不上，面板全离线，必须再重启一次才恢复。

@@ -44,8 +44,8 @@ if (pkg.name !== 'dsh-ai-cluster') {
   problems.push(`package.json name 应为 dsh-ai-cluster，实际 ${JSON.stringify(pkg.name)}`)
 }
 
-if (pkg.version !== '0.3.0') {
-  problems.push(`package.json version 应为 0.3.0，实际 ${JSON.stringify(pkg.version)}`)
+if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(String(pkg.version))) {
+  problems.push(`package.json version 应为合法 semver，实际 ${JSON.stringify(pkg.version)}`)
 }
 
 // ── 1) files 字段 ────────────────────────────────────────────────────────────

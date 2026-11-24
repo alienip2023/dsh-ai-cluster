@@ -1152,7 +1152,7 @@ test('stability: RelayLink detects missing pong and reconnects after close 1006'
   const old = link.conn
   const timer = link.hbTimer
   old.socket.pause()
-  link.lastPongAt = Date.now() - 46_000
+  link.lastPongAt = Date.now() - 91_000
   await waitFor(() => link.ready && link.conn !== old, { label: 'reconnected after heartbeat timeout', timeoutMs: 1500 })
   assert.equal(old.closed, true)
   assert.equal(timer._destroyed, true)

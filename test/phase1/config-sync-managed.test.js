@@ -213,14 +213,15 @@ describe('P1b-1 v1 compatibility: a payload that is not schema 2 behaves exactly
     assert.equal(readFileSync(home.patch, 'utf-8').includes('evil'), false)
   })
 
-  test('P1b1-v1-models-trimmed: model fields beyond {id,name} are not written by this node yet (P1b-2)', () => {
+  test('P1b1-models-fields: the model fields pi-ai accepts are written (P1b-2); a field in the wrong shape is dropped, not written', () => {
     const p = piProvider()
-    p.models = [{ id: 'jina-x', name: 'Jina X', contextWindow: 8192, maxTokens: 1024, input: ['text'], reasoningEfforts: ['low'] }]
+    p.models = [{ id: 'jina-x', name: 'Jina X', contextWindow: 8192, maxTokens: 1024, input: ['text'], reasoningEfforts: ['low'], description: 'not a pi-ai field' }]
     const { result } = push(home, v2(1, { plugins: [], providers: [p] }))
     assert.equal(result.ok, true)
     const patch = readFileSync(home.patch, 'utf-8')
-    assert.match(patch, /- id: "jina-x"\n {12}name: "Jina X"/)
-    assert.equal(patch.includes('contextWindow'), false)
+    assert.match(patch, /- id: "jina-x"\n {12}name: "Jina X"\n {12}contextWindow: 8192\n {12}maxTokens: 1024\n {12}input: \["text"\]\n/)
+    assert.equal(patch.includes('reasoningEfforts'), false, 'an array is not the {level: wire} mapping pi-ai reads: dropped')
+    assert.equal(patch.includes('description'), false, 'a field pi-ai has no place for is never written')
   })
 })
 

@@ -13,6 +13,9 @@ import { handleBotHistoryFrame } from '../../lib/bot-history.js'
 import { handleBotUpdateFrame } from '../../lib/bot-update.js'
 import { handleBotDeleteFrame } from '../../lib/bot-delete.js'
 import { handleBotStopFrame } from '../../lib/bot-stop.js'
+import { handleBotSteerFrame } from '../../lib/bot-steer.js'
+import { handleBotActionFrame } from '../../lib/bot-action.js'
+import { handleBotAttachFrame } from '../../lib/bot-attach.js'
 import { createTurnSeq } from '../../lib/node/turn-seq.js'
 import { createTurnReplay } from '../../lib/node/turn-replay.js'
 
@@ -25,7 +28,7 @@ function swallow(p) { Promise.resolve(p).catch(() => {}) }
  * Returns a dispatch(frame, d?) function for Bot receivers and transport services.
  * Returns `true` if the frame was handled, `false` if it should fall through to index.js default.
  */
-export function createFrameDispatcher({ ctx, send, sendError, engine, logger, stateDir, memory, network, peerDirect = false, onModelSync, onApprovalAnswer }) {
+export function createFrameDispatcher({ ctx, send, sendError, engine, logger, stateDir, memory, network, peerDirect = false, onModelSync, onApprovalAnswer, hubCaps }) {
   const turnSeq = createTurnSeq(stateDir)
   const replay = peerDirect ? createTurnReplay() : null
   return function dispatchReceiverFrame(frame, d, reply = send) {
@@ -41,11 +44,12 @@ export function createFrameDispatcher({ ctx, send, sendError, engine, logger, st
         if (replay && validateBotTurn(data).ok) {
           swallow(replay.run(data.exchangeId.trim(), async () => {
             let result
-            await handleBotTurnFrame({ frame, data, ctx, send: (...args) => { result = args }, sendError, engine, turnSeq })
+            await handleBotTurnFrame({ frame, data, ctx, send: (...args) => { result = args }, sendError, engine, turnSeq, logger })
             return result
           }, reply))
         } else {
-          swallow(handleBotTurnFrame({ frame, data, ctx, send: reply, sendError, engine, turnSeq }))
+          // bot/trace 只回给 hub：来自对等节点的回合（reply 不是 send）与重放路径都不带 hubCaps，不发 trace 帧。
+          swallow(handleBotTurnFrame({ frame, data, ctx, send: reply, sendError, engine, turnSeq, logger, ...(reply === send ? { hubCaps } : {}) }))
         }
         return true
       case HUB_TO_NODE.BOT_CREATE:
@@ -62,6 +66,16 @@ export function createFrameDispatcher({ ctx, send, sendError, engine, logger, st
         return true
       case HUB_TO_NODE.BOT_STOP:
         swallow(handleBotStopFrame({ frame, data, ctx, send, sendError }))
+        return true
+      case HUB_TO_NODE.BOT_STEER:
+        swallow(handleBotSteerFrame({ frame, data, ctx, send, sendError }))
+        return true
+      case HUB_TO_NODE.BOT_ACTION:
+        swallow(handleBotActionFrame({ frame, data, ctx, send, sendError }))
+        return true
+      case HUB_TO_NODE.BOT_ATTACH:
+        // Synchronous on purpose: the chunks must be registered before the bot/turn that follows on the same link.
+        handleBotAttachFrame({ frame, data, ctx, send, sendError, logger })
         return true
       // P1 模型同步帧：hub 是模型 ref 的唯一事实源，node 收到后通知 ds-bot 更新。
       // onModelSync 由 assembly 注入（连 ds-bot 时才存在）；旧 node 忽略此帧（return false）。

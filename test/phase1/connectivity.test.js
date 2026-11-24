@@ -6,7 +6,7 @@ import path from 'node:path'
 import net from 'node:net'
 import { EventEmitter } from 'node:events'
 import { performance } from 'node:perf_hooks'
-import { parseFrpcToml, readSakuraState, probeTcp, collectConnectivity } from '../../src/roster/connectivity.js'
+import { parseFrpcToml, readSakuraState, probeTcp, collectConnectivity } from '../../lib/node/connectivity.js'
 import { applyWorker } from '../../lib/node/index.js'
 import { createSelfCheckService } from '../../lib/node/selfcheck-service.js'
 import { NodeTransport } from '../../lib/node/transport.js'
@@ -146,17 +146,19 @@ test('collectConnectivity: read-only capabilities, config overrides, hub plus ho
   const sample = await collectConnectivity({ dshHome: '/fixture/dsh', platform: 'linux', readFile, readdir, net: fakeNet, now: () => 1234,
     config: { tunnelConfigPaths: ['custom/frpc.toml'], hubUrl: 'wss://hub.example/path?token=secret', probeHosts: ['extra.example:443', 'hub.example:443'], probeTimeoutMs: 50 } })
   assert.deepEqual(sample, { transportMode: 'direct', tunnel: { kind: 'frpc', server: 'frps.example:7000', localPort: 19387, remotePort: 29387 },
-    tunnelState: 'configured', probes: [ { target: 'hub.example:443', result: 'open', rttMs: sample.probes[0].rttMs },
-      { target: 'extra.example:443', result: 'open', rttMs: sample.probes[1].rttMs } ], sampledAt: 1234 })
+    // 本地 frpc 监听端口也会被探测（494ea67），排在 hub / 额外主机之前。
+    tunnelState: 'configured', probes: [ { target: '127.0.0.1:19387', result: 'open', rttMs: sample.probes[0].rttMs },
+      { target: 'hub.example:443', result: 'open', rttMs: sample.probes[1].rttMs },
+      { target: 'extra.example:443', result: 'open', rttMs: sample.probes[2].rttMs } ], sampledAt: 1234 })
   assert.deepEqual(reads, ['/fixture/dsh/custom/frpc.toml'])
   assert.deepEqual(dirs, ['/var/log/sakurafrp'])
-  assert.equal(connects.length, 2)
+  assert.equal(connects.length, 3)
   assert.ok(connects.every(({ host }) => host !== 'frps.example'))
   assert.equal(readFile.mock.callCount(), 1)
   assert.equal(readdir.mock.callCount(), 1)
   for (const spy of writes) assert.equal(spy.mock.callCount(), 0)
   // Inspect the implementation in addition to observing the injected I/O.
-  const source = await fs.readFile(new URL('../../src/roster/connectivity.js', import.meta.url), 'utf8')
+  const source = await fs.readFile(new URL('../../lib/node/connectivity.js', import.meta.url), 'utf8')
   assert.doesNotMatch(source, /fs\.write|writeFile|appendFile|child_process|execSync|spawn|createWriteStream/)
 })
 

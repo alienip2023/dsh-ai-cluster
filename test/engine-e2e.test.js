@@ -769,3 +769,34 @@ test('#26-3 queueStats：排队/并发/最久等待与 starved 判定', () => {
   s = engine.queueStats(now - 90 * 1000)
   assert.equal(s.starved, false, '阈值边缘（< 2 分钟）不判饿')
 })
+
+/* ─────────────── 压测第四轮 D5：收尾开销可见，且不随历史包线性变大 ─────────────── */
+
+test('engine e2e：任务日志记录各阶段耗时；工作区里的历史 final 文件只哈希一次', async (t) => {
+  const root = tmpRoot(t)
+  const { engine, frames, workspace, store } = makeEngine(t, { root, maxConcurrent: 8 })
+  // 40 个旧的、较大的「历史包」：每条任务收尾都会被清单扫到
+  for (let i = 0; i < 40; i += 1) {
+    const file = path.join(workspace, `old-${i}.zip`)
+    fs.writeFileSync(file, Buffer.alloc(300_000, i))
+    const past = new Date(Date.now() - 600_000)
+    fs.utimesSync(file, past, past)
+  }
+  const { clearHashCache } = await import('../lib/artifacts.js')
+  clearHashCache()
+
+  const ids = Array.from({ length: 6 }, (_, i) => `t-d5-${i}`)
+  for (const taskId of ids) assert.equal(dispatchExec(engine, { goal: IS_WIN ? 'Write-Output ok' : 'echo ok', taskId, workspace }).accepted, true)
+  for (const taskId of ids) {
+    const end = await waitFrame(frames, 'task/end', (d) => d.taskId === taskId)
+    assert.equal(end.data.status, TASK_STATUS.COMPLETED)
+    const summary = frames.find((f) => f.type === 'task/summary' && f.data.taskId === taskId)
+    assert.ok(summary, 'handoff sent')
+    const logs = store.get(taskId).logs.map((l) => l.line)
+    const timing = logs.find((line) => line.startsWith('[system] timings '))
+    assert.match(timing ?? '', /^\[system\] timings snapshot=\d+ms run=\d+ms manifest=\d+ms diff=\d+ms$/)
+  }
+  // the manifest of the last task still lists every old package with its hash
+  const last = store.get(ids.at(-1))
+  assert.equal(last.manifest.items.filter((item) => item.path.startsWith('old-') && item.sha256).length, 40)
+})

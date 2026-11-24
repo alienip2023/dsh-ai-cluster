@@ -81,8 +81,36 @@ const E2E_REQUIRED_TYPES = new Set([
   HUB_TO_NODE.BOT_UPDATE,
   // 停掉节点上的 Bot 回合：帧里带 Bot 身份，与其它 bot/* 帧同口径。
   HUB_TO_NODE.BOT_STOP,
+  HUB_TO_NODE.BOT_STEER,
+  // 主控对节点 Bot 的界面操作：params 里是用户的回答原文，必须加密。
+  HUB_TO_NODE.BOT_ACTION,
+  // 主控发给节点 Bot 的图片/文件分块：用户附件原文，必须加密。
+  HUB_TO_NODE.BOT_ATTACH,
   // 并发上限下发：与其它控制帧同口径（帧里带节点身份）。
   HUB_TO_NODE.NODE_CONFIG,
+  // 节点删除 Bot：帧里带 Bot 身份与请求号，与其它 bot/* 帧同口径。
+  HUB_TO_NODE.BOT_DELETE,
+  // 模型同步：帧里带节点身份与模型 ref，必须加密。
+  HUB_TO_NODE.MODEL_SYNC,
+  // 模型同步回执：加密发送与其它控制面回执同口径。
+  NODE_TO_HUB.MODEL_SYNC_RESULT,
+  // 审批答复（hub → node）：帧里带 Bot 身份与审批结果，必须加密。
+  HUB_TO_NODE.APPROVAL_ANSWER,
+  // 审批请求 / 结算（node → hub）：含 Bot 工具调用细节（文件路径/命令），必须加密。
+  NODE_TO_HUB.APPROVAL_REQUEST,
+  NODE_TO_HUB.APPROVAL_SETTLED,
+  // 节点回执（bot/* 与 node/config）：result 里带 Bot 数据与用户回答原文，必须加密。
+  NODE_TO_HUB.BOT_CREATE_RESULT,
+  NODE_TO_HUB.BOT_HISTORY_RESULT,
+  NODE_TO_HUB.BOT_UPDATE_RESULT,
+  NODE_TO_HUB.BOT_DELETE_RESULT,
+  NODE_TO_HUB.BOT_STOP_RESULT,
+  NODE_TO_HUB.BOT_ACTION_RESULT,
+  NODE_TO_HUB.NODE_CONFIG_RESULT,
+  // bot/trace：节点 Bot 的推理与工具参数 / 输出正文，必须加密（上行表同样要有，hub 才会拒收明文）。
+  NODE_TO_HUB.BOT_TRACE,
+  // bot/stream：节点 Bot 的流式文本增量，含会话正文，必须加密。
+  NODE_TO_HUB.BOT_STREAM,
   // M2：config-push 携带 apiKey 明文，必须加密。
   HUB_TO_NODE.CONFIG_PUSH,
   // T9a：peer roster 暴露主控的 Bot 名单，必须加密。
@@ -97,6 +125,74 @@ const E2E_REQUIRED_TYPES = new Set([
  */
 export function isE2ERequired(type) {
   return E2E_REQUIRED_TYPES.has(type)
+}
+
+/**
+ * 会话建立后 **node → hub** 必须加密的帧类型（hub 侧入站闸，与上面的下行表镜像）。
+ *
+ * 为什么另立一张表：下行表（E2E_REQUIRED_TYPES）是「节点拒收哪些明文」；这里是
+ * 「hub 拒收哪些明文」。节点在会话就绪后发出的一切帧都封密（见 sendRaw 的
+ * E2E_CLEAR_TYPES），所以会话就绪后 hub 看到明文的会话/控制帧 = 中继伪造或降级。
+ * 豁免（永远可明文）：hello、hello/node、ping/pong、error、node/e2e 握手提议、
+ * hub/config-sync-request（只带已应用 revision，无正文）；这些都不在表里。
+ * 遥测（node/resource、node/connectivity）不带会话/控制正文，也不在表里。
+ */
+const E2E_REQUIRED_UPLINK_TYPES = new Set([
+  NODE_TO_HUB.TASK_SYNC,
+  NODE_TO_HUB.TASK_ACCEPT,
+  NODE_TO_HUB.TASK_PROGRESS,
+  NODE_TO_HUB.TASK_SUMMARY,
+  NODE_TO_HUB.TASK_END,
+  NODE_TO_HUB.ARTIFACT_MANIFEST,
+  NODE_TO_HUB.JOBS,
+  NODE_TO_HUB.REPOS,
+  NODE_TO_HUB.FS_RES,
+  NODE_TO_HUB.SHARE_RES,
+  NODE_TO_HUB.ROSTER,
+  NODE_TO_HUB.BOT_TURN_RESULT,
+  NODE_TO_HUB.BOT_MESSAGE,
+  NODE_TO_HUB.BOT_CREATE_RESULT,
+  NODE_TO_HUB.BOT_HISTORY_RESULT,
+  NODE_TO_HUB.BOT_UPDATE_RESULT,
+  NODE_TO_HUB.BOT_DELETE_RESULT,
+  NODE_TO_HUB.BOT_STOP_RESULT,
+  NODE_TO_HUB.BOT_ACTION_RESULT,
+  // bot/locate-result: contains Bot identity proof (signature), must be encrypted.
+  NODE_TO_HUB.BOT_LOCATE_RESULT,
+  NODE_TO_HUB.NODE_CONFIG_RESULT,
+  NODE_TO_HUB.CONFIG_ACK,
+  NODE_TO_HUB.MODEL_SYNC_RESULT,
+  NODE_TO_HUB.APPROVAL_REQUEST,
+  NODE_TO_HUB.APPROVAL_SETTLED,
+  // 节点间 Bot 回合经 hub 转发时，origin 节点以 bot/turn 上行（带会话正文）。
+  HUB_TO_NODE.BOT_TURN,
+  // bot/trace：见下行表同名条目。
+  NODE_TO_HUB.BOT_TRACE,
+  // bot/stream：节点 Bot 的流式文本增量，含会话正文，必须加密。
+  NODE_TO_HUB.BOT_STREAM,
+  ...Object.values(MEMORY),
+])
+
+export function isE2ERequiredUplink(type) {
+  return E2E_REQUIRED_UPLINK_TYPES.has(type)
+}
+
+/**
+ * hub 侧入站闸（纯函数）：会话已建立时，上行的明文会话/控制帧一律拒绝。
+ * 会话尚未建立（`e2e` 为假）永远放行 —— 与旧节点、关闭 e2e 的节点混跑。
+ *
+ * @param {{ t: string }} frame
+ * @param {{ e2e: boolean, wasEncrypted: boolean }} opts
+ */
+export function checkUplinkE2EGate(frame, { e2e, wasEncrypted }) {
+  if (e2e && !wasEncrypted && E2E_REQUIRED_UPLINK_TYPES.has(frame?.t)) {
+    return {
+      rejected: true,
+      code: ERROR_CODE.E2E_REQUIRED,
+      message: `unencrypted ${frame.t} rejected while e2e session active`,
+    }
+  }
+  return { rejected: false }
 }
 
 /**

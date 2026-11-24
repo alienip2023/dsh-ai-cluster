@@ -64,7 +64,8 @@ test('bindRosterReport: provide once, report() called multiple times does not th
   assert.doesNotThrow(() => report({ bots: [{ id: 'b1', name: 'Alpha', role: '工' }] }))
   assert.doesNotThrow(() => report({ bots: [] }))
   assert.doesNotThrow(() => report({ bots: [] }))
-  assert.equal(sent.length, 3, 'send should have been called 3 times')
+  // an unchanged roster is not resent within the resend window: [b1], [] (twice, the second one skipped)
+  assert.equal(sent.length, 2, 'the identical repeat of an empty roster is not sent again')
 })
 
 // ── Test 3: repeated provide (same name) throws service-already-registered ──
@@ -93,5 +94,5 @@ test('bindRosterReport is called once (assembly), not inside the report hot-path
   for (let i = 0; i < 10; i++) {
     assert.doesNotThrow(() => report({ bots: [] }), `report() call ${i} threw`)
   }
-  assert.equal(sent.length, 10)
+  assert.equal(sent.length, 1, 'ten identical reports send one frame (resend window)')
 })

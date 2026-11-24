@@ -73,8 +73,11 @@ const effectSlice = effectStart >= 0 ? src.slice(effectStart, src.indexOf('}, [a
 
 test('source: bots/memory branches fetch and render the exact empty sentences', () => {
   assert.ok(effectSlice, 'screen fetch effect must exist')
-  const botsBranch = effectSlice.slice(effectSlice.indexOf("activeScreen === 'bots'"), effectSlice.indexOf("activeScreen === 'memory'"))
-  const modelsBranch = effectSlice.slice(effectSlice.indexOf("activeScreen === 'models'"))
+  // Merged design: bots, models and memory are sections of the single 'team' screen, so the effect has one
+  // 'team' guard per fetch instead of one branch per screen. Each fetch keeps its own in-flight ref.
+  const botsBranch = effectSlice.slice(effectSlice.indexOf("activeScreen === 'team' && !botsInflight.current"), effectSlice.indexOf("activeScreen === 'team' && !modelsInflight.current"))
+  const modelsBranch = effectSlice.slice(effectSlice.indexOf("activeScreen === 'team' && !modelsInflight.current"), effectSlice.indexOf("activeScreen === 'team' && !talentsInflight.current"))
+  assert.ok(botsBranch.length > 0 && modelsBranch.length > 0, 'both team-screen fetch branches exist')
   assert.match(botsBranch, /apiGet\('\/bots'\)/)
   assert.match(modelsBranch, /apiGet\('\/models'\)/)
   // p4：记忆屏不再走本插件的 /memory 桩，由 ui-p4-memory-screen.test.js 覆盖

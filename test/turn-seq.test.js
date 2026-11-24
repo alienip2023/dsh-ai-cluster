@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createTurnSeq } from '../lib/node/turn-seq.js'
@@ -101,5 +101,65 @@ d('S21-seq-missing-unit: validateBotTurnResult seq field', () => {
     const r = validateBotTurnResult({ ...base, seq: 42 })
     assert2.equal(r.ok, true)
     assert2.equal(r.result.seq, 42)
+  })
+})
+
+describe('turn-seq robustness (audit)', () => {
+  test('an unreadable state file restarts from a time floor (never below earlier seqs), and says so', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'turn-seq-corrupt-'))
+    try {
+      const ts1 = createTurnSeq(dir)
+      for (let i = 0; i < 5; i++) ts1.next('bot-c')
+      writeFileSync(join(dir, 'turn-seq.json'), '{not json')
+      const logs = []
+      const ts2 = createTurnSeq(dir, { log: (level, msg, extra) => logs.push({ level, msg, extra }), now: () => 1_800_000_000_000 })
+      const first = ts2.next('bot-c')
+      assert.ok(first >= 1_800_000_000_000, `restarted at ${first}`)
+      assert.equal(ts2.next('bot-c'), first + 1, 'still strictly monotone afterwards')
+      assert.equal(ts2.next('bot-other') >= 1_800_000_000_000, true, 'every counter gets the floor')
+      assert.equal(logs.filter((l) => l.level === 'warn').length, 1)
+      assert.match(logs[0].msg, /unreadable/)
+      // a third process sees the good file written by the second one
+      assert.ok(createTurnSeq(dir).next('bot-c') > first + 1)
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
+  test('an absent file is a fresh install: starts at 0, no warning', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'turn-seq-fresh-'))
+    try {
+      const logs = []
+      const ts = createTurnSeq(join(dir, 'new'), { log: (...a) => logs.push(a) })
+      assert.equal(ts.next('b'), 0)
+      assert.deepEqual(logs, [])
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
+  test('a corrupt entry inside a readable file does not reset that counter to 0', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'turn-seq-entry-'))
+    try {
+      writeFileSync(join(dir, 'turn-seq.json'), JSON.stringify({ a: 'oops', b: 7 }))
+      const ts = createTurnSeq(dir, { now: () => 1_900_000_000_000 })
+      assert.ok(ts.next('a') >= 1_900_000_000_000)
+      assert.equal(ts.next('b'), 8)
+    } finally { rmSync(dir, { recursive: true, force: true }) }
+  })
+
+  test('writes are atomic: no temp file is left, the file is always complete JSON, a failed write warns once', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'turn-seq-atomic-'))
+    try {
+      const ts = createTurnSeq(dir)
+      for (let i = 0; i < 20; i++) ts.next('bot-a')
+      assert.deepEqual(readdirSync(dir), ['turn-seq.json'])
+      assert.equal(JSON.parse(readFileSync(join(dir, 'turn-seq.json'), 'utf8'))['bot-a'], 19)
+
+      // the state dir is a file: nothing can be written, the counter keeps working in memory and the failure is logged once
+      const blocked = join(dir, 'blocked')
+      writeFileSync(blocked, 'x')
+      const logs = []
+      const mem = createTurnSeq(blocked, { log: (level, msg) => logs.push({ level, msg }) })
+      assert.equal(mem.next('x'), 0)
+      assert.equal(mem.next('x'), 1)
+      assert.equal(logs.filter((l) => l.level === 'warn' && /not saved/.test(l.msg)).length, 1)
+    } finally { rmSync(dir, { recursive: true, force: true }) }
   })
 })

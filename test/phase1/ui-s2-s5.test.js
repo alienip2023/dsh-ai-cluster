@@ -16,6 +16,8 @@ function sliceFn(src, name, next) {
 const dispatch = sliceFn(CLIENT, 'DispatchForm', 'PairPanel')
 const loadHub = sliceFn(CLIENT, 'loadHub', 'load(')
 const nodeCard = sliceFn(CLIENT, 'NodeCard', 'NodeCardGrid')
+// The card's load/status lines moved into nodeCardView (merged design): the text checks cover both functions.
+const nodeCardView = sliceFn(CLIENT, 'nodeCardView', 'NodeCard')
 
 test('S2 keeps node dispatch and explains 机器人级交办本期不可用', () => {
   assert.ok(dispatch.includes('目标节点'))
@@ -28,7 +30,7 @@ test('S5 loads node status through the existing API fallback', () => {
 })
 
 test('S5 node cards retain resource fallback and show heartbeat details', () => {
-  for (const text of ['静默', '心跳超时', '资源未上报']) assert.ok(nodeCard.includes(text), text)
+  for (const text of ['静默', '心跳超时', '负载未上报']) assert.ok((nodeCardView + nodeCard).includes(text), text)
 })
 
 test('worker and setup paths stay unchanged', () => {
@@ -52,7 +54,11 @@ async function runLoadHub(overview, status, role = 'hub') {
   let hubResult
   const sandbox = {
     apiGet(path) {
+      // Side requests of the merged hub screen (tickets, goals, bot audit): each is optional in loadHub
+      // (a failure becomes null), they are not part of what these tests pin.
       if (path === '/tickets') return Promise.resolve({ tickets: null })
+      if (path === '/goals') return Promise.resolve({ goals: null })
+      if (path === '/bot-audit') return Promise.resolve({ entries: null })
       calls.push(path)
       if (path === '/overview') return Promise.resolve(overview)
       if (path === '/tasks') return Promise.resolve(tasks)
@@ -129,10 +135,11 @@ test('both role still reads local worker status through STATUS_PATH', async () =
 })
 
 function renderNode(node) {
-  const render = vm.runInNewContext(`(${nodeCard.trim()})`, {
+  const render = vm.runInNewContext(`${nodeCardView}\n(${nodeCard.trim()})`, {
     h(type, props, ...children) { return { type, props, children } },
     Dot() {}, Badge() {}, pct(value) { return value }, shortId(id) { return id },
     connectivityLine() { return '链路详情未上报' },
+    frameRttLine() { return null }, topoHealthOverlay() { return null }, topoNodeId(n) { return n.nodeId },
   })
   return render({ node })
 }
@@ -142,7 +149,7 @@ test('S5 heartbeat rounds seconds, accepts zero and leaves online badge intact',
   const text = JSON.stringify(tree)
   assert.ok(text.includes('静默 16 秒'))
   assert.ok(text.includes('心跳超时'))
-  assert.ok(text.includes('资源未上报'))
+  assert.ok(text.includes('负载未上报'))
   assert.ok(text.includes('在线（未知）'))
   assert.equal(tree.props.className, 'dra-node-card online')
   assert.ok(JSON.stringify(renderNode({ silentMs: 0 })).includes('静默 0 秒'))

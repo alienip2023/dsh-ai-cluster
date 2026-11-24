@@ -207,7 +207,8 @@ test('L1：副机 transport 必须有 connecting 闸门（防重复连接）', a
   const code = stripComments(fs.readFileSync(path.join(ROOT, 'lib', 'node', 'transport.js'), 'utf8'))
 
   assert.match(code, /this\.connecting\s*=\s*true/, '应有 connecting 闸门')
-  assert.match(code, /if\s*\(this\.connecting\)\s*return/, '重入时必须直接返回')
+  // 闸门可以带别的条件（如"已有存活连接"），但 this.connecting 为真时必须直接 return。
+  assert.match(code, /if\s*\(this\.connecting\b.*\)\s*return/, '重入时必须直接返回')
 })
 
 test('L1：副机 transport 的 close 必须校验"是不是当前连接"', async () => {

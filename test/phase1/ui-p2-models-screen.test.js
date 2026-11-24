@@ -66,12 +66,13 @@ test('null models is unreported; [] is reported-empty; invalid entries dropped; 
 
 const effectStart = src.indexOf('React.useEffect(function () {\n        function store(')
 const effectSlice = effectStart >= 0 ? src.slice(effectStart, src.indexOf('}, [activeScreen, pollTick, tick])', effectStart)) : ''
-const modelsStart = src.indexOf("screen === 'models' ?")
+// Merged design: the model catalog is a fold of the 'team' screen, rendered by the same branch as bots and memory.
+const modelsStart = src.indexOf("screen === 'team' ? (function () {")
 const renderSlice = modelsStart >= 0 ? src.slice(modelsStart, src.indexOf("h('p', null, '未接入')", modelsStart)) : ''
 
 test('source: models branch fetches /models and renders distinct sentences (p3-s3 contract)', () => {
   assert.ok(effectSlice && renderSlice)
-  const branch = effectSlice.slice(effectSlice.indexOf("activeScreen === 'models'"))
+  const branch = effectSlice.slice(effectSlice.indexOf("activeScreen === 'team' && !modelsInflight.current"), effectSlice.indexOf("activeScreen === 'team' && !talentsInflight.current"))
   assert.match(branch, /apiGet\('\/models'\)/)
   assert.doesNotMatch(renderSlice, /同步状态未采集/)
   assert.match(src, /尚未上报模型/)

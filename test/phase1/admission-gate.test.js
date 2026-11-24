@@ -279,7 +279,12 @@ test('AC-2 criterion 11: protocol and client pin, no admission fields in a scope
   const clientHash = releaseCheck.match(/^const clientHash = '([a-f0-9]{64})'$/m)?.[1]
   assert.ok(clientHash, 'missing release client hash')
   assert.equal(hash(readFileSync(path.join(root, 'lib/client.js'))), clientHash)
-  assert.equal(JSON.parse(readFileSync(path.join(root, 'package.json'))).version, '0.4.14')
+  // The version is read from package.json (it used to be a literal that went stale on every release);
+  // the release check must not carry a literal of its own either - only the client hash stays pinned.
+  const version = JSON.parse(readFileSync(path.join(root, 'package.json'))).version
+  assert.match(version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/)
+  assert.doesNotMatch(releaseCheck, /"version": "\d/)
+  assert.doesNotMatch(releaseCheck, /pkg\.version === '/)
   const result = await h.tool()
   assert.equal(h.frames.length, 1)
   const [wire] = h.frames

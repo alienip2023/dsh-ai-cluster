@@ -83,7 +83,8 @@ for (const [label, before, after] of [
   ['model order and object key order', [a, b], [{ name: b.name, id: b.id }, { name: a.name, id: a.id }]],
   ['implicit model name', [{ id: 'model-a' }], [{ id: 'model-a', name: 'model-a' }]],
   ['absent and empty models', undefined, []],
-  ['metadata not written to patch', [{ ...a, contextWindow: 1024 }], [{ ...a, contextWindow: 2048 }]],
+  ['metadata not written to patch', [{ ...a, description: 'one' }], [{ ...a, description: 'two' }]],
+  ['an invalid capability field that is dropped anyway', [{ ...a, input: ['audio'] }], [{ ...a, input: ['video'] }]],
 ]) {
   test('model reload: ' + label + ' does not request another restart', (t) => {
     const f = setup(t)
@@ -96,6 +97,18 @@ for (const [label, before, after] of [
     assert.deepEqual(f.events.map((e) => e.kind), ['ack'])
   })
 }
+
+test('model reload: a changed capability that IS written (contextWindow, input) restarts the node once', (t) => {
+  const f = setup(t)
+  assert.equal(f.push(1, [{ ...a, contextWindow: 1024 }]).ok, true)
+  f.events.length = 0
+  assert.equal(f.push(2, [{ ...a, contextWindow: 2048 }]).shouldRestart, true)
+  assert.deepEqual(f.events.map((e) => e.kind), ['ack', 'restart'])
+  f.events.length = 0
+  assert.equal(f.push(3, [{ ...a, contextWindow: 2048, input: ['text', 'image'] }]).shouldRestart, true, 'the model learned to read images')
+  f.events.length = 0
+  assert.equal(f.push(4, [{ ...a, contextWindow: 2048, input: ['text', 'image'] }]).shouldRestart, false)
+})
 
 for (const models of [[a], [], undefined]) {
   test('model reload: fork.85 state without a digest reloads once (' + (models?.length ? 'nonempty' : models ? 'empty' : 'absent') + ')', (t) => {

@@ -42,6 +42,7 @@ import {
   validateJobsFrame,
   validateHello,
   validateBotTurnResult,
+  validateBotTrace,
   validateBotTurn,
   validateBotMessage,
   validateBotCreateResult,
@@ -49,6 +50,7 @@ import {
   validateBotUpdateResult,
   validateBotDeleteResult,
   validateBotStopResult,
+  validateBotActionResult,
   validateMemAck,
   validateMemRead,
   validateMemWrite,
@@ -71,6 +73,16 @@ import { cleanRosterSkills } from './report.js'
 // in behavior; lib/ is outside this slice's import boundary.
 const errText = (err) => String(err?.message ?? err ?? 'unknown error')
 const numOr = (v, fallback) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
+
+/**
+ * A bot/turn that names attachments follows its bot/attach chunks, which always travel on the hub link
+ * (bot/attach is not a peer bot type). Sending that turn over a peer-direct socket could overtake the chunks,
+ * so it takes the hub link too: one connection, so the chunks are in front of the turn.
+ */
+const HUB_ONLY_AFTER_ATTACH_MS = 120_000
+function carriesAttachments(type, data) {
+  return type === 'bot/turn' && Array.isArray(data?.attachments) && data.attachments.length > 0
+}
 
 export const E2E_HEAL_DEFAULTS = Object.freeze({
   /** First attempt after the node shows up without a session; each further attempt doubles the wait. */
@@ -303,7 +315,18 @@ class RosterCore extends EventEmitter {
    * 节点有 E2E 会话（提案 #1）时 d 字段自动封密（上述明文白名单除外）。
    */
   send(nodeId, type, data, opts = {}) {
-    if (this.peerRouter && this.isPeerBotTypeFn(type) && this.nodes.get(nodeId)?.online) {
+    // An image or a file is the user's own data: it never leaves unencrypted (the receiving side refuses plaintext too),
+    // so a node whose E2E session is not up yet gets no chunk rather than a readable one. The sender fails the message.
+    if (type === HUB_TO_NODE.BOT_ATTACH && !this.nodes.get(nodeId)?.e2e) {
+      this.log('warn', 'bot/attach not sent: no e2e session with the node', { nodeId })
+      return false
+    }
+    // A turn with attachments travels on the hub link (its chunks do). The turns right behind it must not overtake it by
+    // taking the peer-direct link: for a while after one, every turn to that node uses the hub link too.
+    const hubOnly = (this.hubOnlyUntil ??= new Map())
+    if (carriesAttachments(type, data)) hubOnly.set(nodeId, Date.now() + HUB_ONLY_AFTER_ATTACH_MS)
+    const keepOnHub = carriesAttachments(type, data) || (hubOnly.get(nodeId) ?? 0) > Date.now()
+    if (this.peerRouter && !keepOnHub && this.isPeerBotTypeFn(type) && this.nodes.get(nodeId)?.online) {
       return this.peerRouter.send(nodeId, type, data, opts)
     }
     return this.sendViaHub(nodeId, type, data, opts)
@@ -1054,6 +1077,31 @@ export function withIngest(Base) {
           return
         }
 
+        case NODE_TO_HUB.BOT_TRACE: {
+          // 节点 Bot 的思考过程与工具步骤（bot-trace/1）。只是页面的附加显示：坏帧不让回合失败，
+          // 只记 warn 与审计；真正的权威是 bot/turn-result 的文本，trace 缺了页面照样有答案。
+          const checked = validateBotTrace(d)
+          if (!checked.ok) {
+            this.log?.('warn', 'bot/trace rejected', { nodeId, error: checked.error })
+            return
+          }
+          const trace = checked.trace
+          // 与回合结果同口径：必须落在认证连接名下，冒名帧整帧丢弃。
+          if (trace.nodeId !== nodeId) {
+            this.log('warn', 'peer-node-mismatch', { connection: nodeId, claimed: trace.nodeId, frame: 'bot/trace' })
+            return
+          }
+          // 原样重放（同一帧发了两次）只算一次。key 带上条数与末尾序号：节点重启后同一 exchangeId
+          // 重新从 seq 1 开始，内容不同的帧不会被误当成重放。ds-bot 另按步骤序号 i 去重，这里只是省一次投递。
+          this.traceSeen ??= new Set()
+          const seenKey = `${nodeId}\u0000${trace.exchangeId}\u0000${trace.seq}\u0000${trace.final === true ? 'f' : ''}\u0000${trace.items.length}\u0000${trace.items.at(-1)?.i ?? 0}`
+          if (this.traceSeen.has(seenKey)) return
+          if (this.traceSeen.size >= 4096) this.traceSeen.delete(this.traceSeen.values().next().value)
+          this.traceSeen.add(seenKey)
+          try { this.emit('botTrace', { ...trace, nodeId }) } catch { /* a listener must not take the ingest path down */ }
+          return
+        }
+
         case NODE_TO_HUB.BOT_CREATE_RESULT: {
           const checked = validateBotCreateResult(d)
           if (!checked.ok) return
@@ -1079,6 +1127,13 @@ export function withIngest(Base) {
           const checked = validateBotDeleteResult(d)
           if (!checked.ok) return
           try { this.emit('botDeleteResult', checked.result) } catch { /* a listener must not take the ingest path down */ }
+          return
+        }
+
+        case NODE_TO_HUB.BOT_ACTION_RESULT: {
+          const checked = validateBotActionResult(d)
+          if (!checked.ok) return
+          try { this.emit('botActionResult', { ...checked.result, nodeId }) } catch { /* a listener must not take the ingest path down */ }
           return
         }
 

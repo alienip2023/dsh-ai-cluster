@@ -1,6 +1,6 @@
 {
   "name": "dsh-ai-cluster",
-  "version": "0.4.14",
+  "version": "0.4.33",
   "type": "module",
   "description": "AI 集群控制 / AI Cluster Control：把几台电脑连成一张 AI 网络，主控派任务、副机执行、统一面板、模型与记忆统一配置。",
   "license": "MIT",
@@ -48,7 +48,8 @@
   "main": "./lib/index.js",
   "bin": {
     "dsh-remote-relay": "bin/dsh-remote-relay.js",
-    "dsh-remote-setup": "bin/dsh-remote-setup.js"
+    "dsh-remote-setup": "bin/dsh-remote-setup.js",
+    "dsh-node-daemon": "bin/dsh-node-daemon.mjs"
   },
   "files": [
     "lib",
@@ -93,7 +94,7 @@
     "node": "^22.19.0 || >=24.0.0"
   },
   "scripts": {
-    "test": "node --test test/*.test.js test/phase1/*.test.js",
+    "test": "node --import ./test/_env.js --test test/*.test.js test/phase1/*.test.js",
     "check:docs": "node scripts/check-doc-drift.mjs",
     "check:packaging": "node scripts/check-packaging.mjs",
     "check:release": "node scripts/check-release-reachability.mjs",

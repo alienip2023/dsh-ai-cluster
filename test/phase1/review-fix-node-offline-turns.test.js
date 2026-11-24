@@ -1,5 +1,6 @@
-// review-fix A / item 2: a node disconnect fails that node's in-flight bot turns with
-// 'node-offline' so they stop holding one of the botTurnMax slots until the 10 minute TTL.
+// A node disconnect no longer fails that node's in-flight bot turns: they stay 'running' with a linkLost flag
+// (the node replays the real result after reconnect, and settleBotTurn must still accept it), and they stop
+// counting against the botTurnMax admission slots so one lost link cannot make every node answer bot-turn-busy.
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { apply } from '../../lib/index.js'
@@ -29,7 +30,7 @@ function hello(registry, nodeId) {
   })
 }
 
-test('node offline: its running turns fail with node-offline, free their slots, new turn accepted; other nodes untouched', (t) => {
+test('node offline: its running turns stay running with linkLost, free their admission slots, new turn accepted; other nodes untouched', (t) => {
   const b = boot(); t.after(() => b.handles.dispose())
   const reg = b.registry
   hello(reg, 'n1'); hello(reg, 'n2')
@@ -45,7 +46,7 @@ test('node offline: its running turns fail with node-offline, free their slots, 
   reg.markOffline('n1', 'test')
 
   for (const id of [a1.exchangeId, a2.exchangeId]) {
-    assert.deepEqual(reg.botTurnStatus(id), { state: 'failed', error: 'node-offline', text: '' })
+    assert.deepEqual(reg.botTurnStatus(id), { state: 'running', linkLost: true })
   }
   assert.deepEqual(reg.botTurnStatus(other.exchangeId), { state: 'running' }, 'other node untouched')
 
@@ -67,7 +68,7 @@ test('node offline: an already settled turn keeps its result', (t) => {
   assert.deepEqual(reg.botTurnStatus(a.exchangeId), { state: 'done', text: 'answer' })
 })
 
-test('node offline with a full ring of its own turns: the 33rd turn is no longer bot-turn-busy for everyone', (t) => {
+test('node offline with a full ring of its own turns: a turn on another node is no longer bot-turn-busy', (t) => {
   const b = boot(); t.after(() => b.handles.dispose())
   const reg = b.registry
   hello(reg, 'n1'); hello(reg, 'n2')

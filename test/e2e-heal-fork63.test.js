@@ -499,10 +499,10 @@ test('E63-console: e2e events are one whitelisted line each, with numbers only, 
   const key = 'k3y'.repeat(20)
   for (const [status, expect] of [['ok', 'established'], ['offer', 'offer'], ['reset', 'reset'], ['timeout', 'timeout']]) {
     const line = renderLifecycleLine('n-1', 'e2e', { status, delayMs: 160, attempt: 2, pub: key, sig: key, privateKeyB64: key, message: key })
-    assert.match(line, new RegExp(`^\\[dsh-ai-unified\\] node=n-1 event=e2e status=${expect}( attempt=2)?( delayMs=160)?$`), line)
+    assert.match(line, new RegExp(`^\\[dsh-ai-cluster\\] node=n-1 event=e2e status=${expect}( attempt=2)?( delayMs=160)?$`), line)
     assert.equal(line.includes(key), false)
   }
-  assert.equal(renderLifecycleLine('n-1', 'e2e', { status: 'ok' }), '[dsh-ai-unified] node=n-1 event=e2e status=established')
+  assert.equal(renderLifecycleLine('n-1', 'e2e', { status: 'ok' }), '[dsh-ai-cluster] node=n-1 event=e2e status=established')
   const odd = renderLifecycleLine('n-1', 'e2e', { status: 'weird\nstatus' })
-  assert.equal(odd, '[dsh-ai-unified] node=n-1 event=e2e', 'an unknown status is left out')
+  assert.equal(odd, '[dsh-ai-cluster] node=n-1 event=e2e', 'an unknown status is left out')
 })

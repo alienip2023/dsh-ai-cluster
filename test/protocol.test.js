@@ -142,7 +142,10 @@ const VALID_HELLO = {
 test('validateHello：接受合法输入并原样归一化', () => {
   const v = validateHello(VALID_HELLO)
   assert.equal(v.ok, true)
-  assert.deepEqual(v.hello, { ...VALID_HELLO, transportMode: undefined })
+  // acVersion is the AC version a node reports (0.4.28+); an older node sends none: ''
+  assert.deepEqual(v.hello, { ...VALID_HELLO, acVersion: '', transportMode: undefined })
+  assert.equal(validateHello({ ...VALID_HELLO, acVersion: '0.4.28' }).hello.acVersion, '0.4.28')
+  assert.equal(validateHello({ ...VALID_HELLO, acVersion: 'v1; drop' }).hello.acVersion, '', 'a malformed version is dropped')
 
   for (const os of ['windows', 'linux', 'darwin']) {
     const r = validateHello({ ...VALID_HELLO, os })

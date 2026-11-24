@@ -49,11 +49,20 @@ function registryFor(nodeId) {
   return new (withIngest(Core))()
 }
 
-test('roster report becomes stable shadows after ingest', { skip: dsBot.error || false }, async () => {
+test('roster report becomes stable shadows after ingest', { skip: dsBot.error || false }, async (t) => {
   const offlineSrc = readFileSync(new URL('../lib/hub/node-registry.js', import.meta.url), 'utf8')
   assert.match(offlineSrc, /this\.emit\('nodeOffline'/, '断连必须发出 nodeOffline，否则影子行无法标离线')
 
-  const { applyRosterReport, markNodeOffline, shadowId } = await import(pathToFileURL(dsBot.file).href)
+  // ds-bot 的源码依赖宿主提供的 @deepseek-ai/*（在 DSH 里才有）。AC 单仓库环境里没装
+  // 时无法加载，和"找不到 ds-bot"同样处理为跳过，而不是报告成失败。
+  let loaded
+  try {
+    loaded = await import(pathToFileURL(dsBot.file).href)
+  } catch (error) {
+    if (error?.code === 'ERR_MODULE_NOT_FOUND' && /@deepseek-ai\//.test(String(error.message))) return t.skip(`ds-bot 的宿主依赖未安装：${error.message.split('\n')[0]}`)
+    throw error
+  }
+  const { applyRosterReport, markNodeOffline, shadowId } = loaded
   const nodeId = 'node-a'
   const registry = registryFor(nodeId)
   const state = { bots: {} }
