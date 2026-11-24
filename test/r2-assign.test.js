@@ -130,3 +130,18 @@ test('R4-1 team/act: node asks, hub ingest checks the actor node, host answers, 
   assert.deepEqual(await offline.teamAct({ requestId: 'r-3', actor: e11, tool: 'create_bot', args: '{}' }), { ok: false, text: 'The hub is not connected.' })
   node.dispose(); offline.dispose(); hubNet.dispose()
 })
+
+test('R4-2 every bot/assign hop the hub carries is audited and told to the host', () => {
+  const registry = new (withIngest(Core))({ node010: true, node011: true, node012: false })
+  const audits = []
+  const relayed = []
+  registry.auditRecord = (event, fields) => audits.push({ event, fields })
+  registry.on('botAssignRelayed', e => relayed.push(e))
+  registry.handleFrameFor('node011', { t: 'bot/assign', d: deliver() })
+  registry.handleFrameFor('node011', { t: 'bot/assign', d: deliver({ frameId: 'f-2', to: { ...e10, id: 'joined:node012:x', nodeId: 'node012' } }) })
+  registry.handleFrameFor('node011', { t: 'bot/assign', d: deliver({ frameId: 'f-3', to: chief }) })
+  assert.deepEqual(relayed.map(e => e.outcome), ['forwarded', 'target-offline', 'to-hub'])
+  assert.deepEqual(audits.map(a => [a.event, a.fields.outcome, a.fields.role]), [['bot.assign', 'forwarded', 'request'], ['bot.assign', 'target-offline', 'request'], ['bot.assign', 'to-hub', 'request']])
+  assert.equal(audits[0].fields.from, 'node011/node011执行')
+  assert.equal('text' in audits[0].fields, false, 'the message text is not written to the audit log')
+})

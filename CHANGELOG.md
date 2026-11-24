@@ -9,6 +9,27 @@
 
 ---
 
+## 0.4.35 — 2026-11-24（与 ds-bot 0.3.10-fork.115 配套；节点仍可用 0.4.34）
+
+**主控能看见节点之间的对话**
+
+- 主控转发 `bot/assign` 的每一跳（转发给节点 / 交给主控宿主 / 目标离线退回 / 发送失败）都写审计 `bot.assign`（op、frameId、结果、两端 `<节点>/<Bot 名>`、角色、exchangeId、字数；不写正文），并对宿主发 `botAssignRelayed` 事件。
+- 只改主控：节点不必升级。
+
+---
+
+## 0.4.34 — 2026-11-24（与 ds-bot 0.3.10-fork.113/114 配套；主控与节点须同时升级）
+
+**跨机 Bot 协作（重写 R1–R4）**
+
+- 全队目录：`bot/directory` 每个 Bot 带 `identityId / hostname / online / state / model`，并带整张 `machines` 列表；主控为自己的 Bot 配发身份（服务 `remote-agent:bot-identity`）；`registry.list()` 带 `acVersion`。
+- 新帧 `bot/assign`（deliver / ack / bounce）：跨机 Bot 间投递经主控转发，目标节点离线时退回发送方；节点发出时由身份簿盖上发送方 `identityId`。
+- 新帧 `team/act` / `team/act-result`：节点 Bot 请主控代为执行团队管理工具，主控核对发起者所在节点。
+- 集群工具每机能力 ACL 接通：`<stateDir>/acl.json` 存在时才拦截（热读）。
+- 不兼容 0.4.33 及更早的节点。
+
+---
+
 ## 0.4.33 — 2026-11-24（与 ds-bot 0.3.10-fork.112 配套）
 
 **Bot 定位：主控处理 bot/locate-result，身份自动配发**

@@ -1052,14 +1052,28 @@ export function withIngest(Base) {
             this.log('warn', 'peer-node-mismatch', { connection: nodeId, claimed: assign.from.nodeId, frame: frame.t })
             return
           }
+          // Every hop is on record (audit) and told to the host, so the hub can show node-to-node exchanges it carries.
+          const relayed = (outcome) => {
+            try {
+              this.auditRecord?.('bot.assign', {
+                op: assign.op, frameId: assign.frameId, outcome,
+                from: `${assign.from.nodeId}/${assign.from.name}`, to: `${assign.to.nodeId}/${assign.to.name}`,
+                ...(assign.op === 'deliver' ? { role: assign.role, exchangeId: assign.exchangeId, chars: assign.text.length } : {}),
+              })
+            } catch { /* audit is best effort */ }
+            try { this.emit('botAssignRelayed', { frame: assign, outcome }) } catch { /* a listener must not take the ingest path down */ }
+          }
           if (assign.to.nodeId === 'hub') {
+            relayed('to-hub')
             try { this.emit('botAssign', assign) } catch { /* a listener must not take the ingest path down */ }
             return
           }
           if (this.nodes.get(assign.to.nodeId)?.online) {
-            this.send(assign.to.nodeId, HUB_TO_NODE.BOT_ASSIGN, assign)
+            const sent = this.send(assign.to.nodeId, HUB_TO_NODE.BOT_ASSIGN, assign)
+            relayed(sent === false ? 'send-failed' : 'forwarded')
             return
           }
+          relayed('target-offline')
           if (assign.op === 'deliver') {
             this.send(nodeId, HUB_TO_NODE.BOT_ASSIGN, { op: 'bounce', frameId: assign.frameId, from: assign.to, to: assign.from, reason: 'offline', at: Date.now() })
           }
