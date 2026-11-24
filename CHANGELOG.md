@@ -9,6 +9,16 @@
 
 ---
 
+## 0.4.39 — 2026-11-25（移除 SSH 一键上桥；协议不变，节点不必升级）
+
+### 移除（不兼容旧面板）
+- **SSH 一键上桥**整块功能：面板「机器」屏的「SSH 一键上桥」（主机列表、环境探测、部署、安装运行环境、按探测结果自动写入中继配置），以及对应路由 `GET /ssh-hosts`、`POST /ssh-probe`、`GET|POST /ssh-deploy`、`POST /ssh-deploy/install-runtime`、`POST /relay-autoconfig`（现在返回 404）。
+- 模块 `lib/hub/ssh-onboard.js` 与运行时依赖 `ssh2` 一并删除，安装包不再需要编译 `ssh2` 的原生绑定。
+- 只为它服务的中继配置写入辅助（`applyRelayMemory`、`buildRelayAutoconfigYaml`、进程内覆盖层）已删除；`lib/hub/relay-memory.js` 现在只保留三个读取函数，`/config`、`/setup` 与面板的读取口径不变。
+- 加入副机的办法不变：「机器」屏的「添加机器」（配对码、一次性入网口令、四步引导）或副机侧的配对码。
+
+---
+
 ## 0.4.38 — 2026-11-25（只改面板样式，接口与协议不变；节点不必升级）
 
 ### 变更

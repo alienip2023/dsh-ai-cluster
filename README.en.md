@@ -2,7 +2,7 @@
 
 [简体中文](README.md)
 
-`dsh-ai-cluster` 0.4.38 is a DSH plugin. The hub uses the AI Cluster Control panel to view nodes and assign tasks. Workers run tasks in their own workspaces and send back the results. The protocol version remains **1**.
+`dsh-ai-cluster` 0.4.39 is a DSH plugin. The hub uses the AI Cluster Control panel to view nodes and assign tasks. Workers run tasks in their own workspaces and send back the results. The protocol version remains **1**.
 
 ## 1. Quick start
 
@@ -27,7 +27,7 @@ Use `bin/dsh-remote-setup.js` (command name `dsh-remote-setup`) to generate conf
 
 ## 3. Panel and LAN discovery
 
-The hub panel has four tabs: Overview (topology, connection diagnostics, node versions, undelivered messages), Machines (nodes, Add a machine, SSH deploy, and LAN discovery, which you can turn on or off and use to manually scan for nearby nodes), Team (the Bots on each machine, the model catalog, and team memory), and Tasks (dispatch and manage tasks). The Settings drawer in the toolbar holds the local role, connection configuration, the environment check, and the reliable-link queue of undelivered messages. Discovery lists candidates, and workers still need to pair to join. Enable discovery only on trusted LANs.
+The hub panel has four tabs: Overview (topology, connection diagnostics, node versions, undelivered messages), Machines (nodes, Add a machine, and LAN discovery, which you can turn on or off and use to manually scan for nearby nodes), Team (the Bots on each machine, the model catalog, and team memory), and Tasks (dispatch and manage tasks). The Settings drawer in the toolbar holds the local role, connection configuration, the environment check, and the reliable-link queue of undelivered messages. Discovery lists candidates, and workers still need to pair to join. Enable discovery only on trusted LANs.
 
 ## 4. Connections and transfers
 

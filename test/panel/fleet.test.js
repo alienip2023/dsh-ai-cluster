@@ -3,9 +3,9 @@ import test from 'node:test'
 import { makeCore, expand, texts, textOf, findAll, findButtons } from './_fake.js'
 import { dataEmptyHub, dataAttachLink } from '../../src/panel/data.js'
 import {
-  createFleet, fleetActivity, fleetActivityText, fleetAttemptRows, fleetBacklog, fleetBacklogTotals, fleetCanDeploy, fleetConnLine, fleetCut,
+  createFleet, fleetActivity, fleetActivityText, fleetAttemptRows, fleetBacklog, fleetBacklogTotals, fleetConnLine, fleetCut,
   fleetDiscoveryRows, fleetErrText, fleetHealth, fleetIsLan, fleetLastSeen, fleetLayout, fleetLinkKind, fleetListenerNotice, fleetLoad, fleetMachFlow,
-  fleetMachInit, fleetMachReduce, fleetNodeModel, fleetNotices, fleetPeerModel, fleetProbeBadge, fleetProbeRows, fleetQueue, fleetRelayReady,
+  fleetMachInit, fleetMachReduce, fleetNodeModel, fleetNotices, fleetPeerModel, fleetProbeRows, fleetQueue,
   fleetRelayStatus, fleetRtt, fleetRttText, fleetSpark, fleetStaleCounts, fleetStaleLabel, fleetStatus, fleetTransport, fleetTransportLine,
   fleetTunnelLine, fleetVersion, fleetVersionText,
 } from '../../src/panel/fleet.js'
@@ -46,7 +46,6 @@ const props = (hub, extra = {}) => Object.assign({ hub, role: 'hub', go() {}, re
 const render = (Comp, p, state) => { const core = makeCore({ state }); const f = createFleet(core); return core.h(f[Comp], p) }
 /* The fake useState queue is consumed by the first expansion, so a test that injects state expands exactly once and queries that tree. */
 const view = (Comp, p, state) => { const tree = expand(render(Comp, p, state)); return { tree, text: texts(tree).join('') } }
-const buttonsIn = (tree, label) => findAll(tree, (n) => n.type === 'button' && texts(n).join('').includes(label))
 
 /* ── 纯函数 ──────────────────────────────────────────────────────── */
 
@@ -257,54 +256,24 @@ test('layout is deterministic, bounded, two rings past 8 nodes, relay box only w
   assert.equal(fleetNodeModel(nodeA, { running: 0, queued: 1, done: 0, failed: 0, total: 1 }, 0).edgeLabel, '直连 5ms')
 })
 
-/* ── SSH / 接入流程 ──────────────────────────────────────────────── */
+/* ── 接入流程（配对码 / 入网口令） ──────────────────────────────────────────────── */
 
 test('reducer transitions', () => {
   let s = fleetMachInit
-  s = fleetMachReduce(s, { type: 'hosts', hosts: [{ alias: 'a' }], err: '' })
-  assert.equal(s.hosts.length, 1)
-  s = fleetMachReduce(s, { type: 'probe-start', alias: 'a' })
-  assert.equal(s.probing.a, true)
-  s = fleetMachReduce(s, { type: 'probe-done', alias: 'a', result: { ok: true } })
-  assert.equal(s.probing.a, false)
-  assert.deepEqual(s.probe.a, { ok: true })
-  s = fleetMachReduce(s, { type: 'deploy-start', alias: 'a' })
-  s = fleetMachReduce(s, { type: 'job', alias: 'a', job: { status: 'running' } })
-  assert.equal(s.deploying.a, true)
-  s = fleetMachReduce(s, { type: 'deploy-end', alias: 'a' })
-  assert.equal(s.deploying.a, false)
-  assert.equal(s.job.a.status, 'running')
-  s = fleetMachReduce(s, { type: 'install-end', alias: 'a', err: 'x' })
-  assert.equal(s.installErr.a, 'x')
+  s = fleetMachReduce(s, { type: 'show', value: true })
+  assert.equal(s.showPublic, true)
+  s = fleetMachReduce(s, { type: 'show', value: 'yes' })
+  assert.equal(s.showPublic, false) // only an explicit true turns it on
   s = fleetMachReduce(s, { type: 'patch', key: 'enroll', value: { loading: true } })
   assert.equal(s.enroll.loading, true)
   assert.equal(fleetMachReduce(s, { type: 'nope' }), s)
-  assert.equal(fleetMachInit.job.a, undefined) // initial state never mutated
+  assert.equal(fleetMachInit.enroll.loading, false) // initial state never mutated
+  assert.deepEqual(Object.keys(fleetMachInit).sort(), ['enroll', 'pair', 'showPublic'])
 })
 
-test('probe badge and deploy gate', () => {
-  assert.equal(fleetProbeBadge(null).label, '未探测')
-  assert.equal(fleetProbeBadge({ ok: false }).tone, 'bad')
-  assert.equal(fleetProbeBadge({ ok: true, missing: ['node'] }).label, '缺运行环境')
-  assert.equal(fleetProbeBadge({ ok: true, missing: [], isRelay: true }).label, '中继主机')
-  assert.equal(fleetProbeBadge({ ok: true, missing: [] }).label, '环境就绪')
-  assert.equal(fleetCanDeploy({ ok: true, missing: [] }), true)
-  assert.equal(fleetCanDeploy({ ok: true, missing: ['dsh'] }), false)
-  assert.equal(fleetCanDeploy({ ok: true, missing: [], isRelay: true }), false)
-  assert.equal(fleetCanDeploy(null), false)
-  assert.equal(fleetRelayReady({ config: { relayUrl: 'ws://r/relay', relayTokenSet: true } }), true)
-  assert.equal(fleetRelayReady({ config: { relayUrl: ' ', relayTokenSet: true } }), false)
-  assert.equal(fleetRelayReady({ config: { relayUrl: 'ws://r', relayTokenSet: false } }), false)
-  assert.equal(fleetRelayReady(null), false)
-})
-
-function mkIo(script, opts = {}) {
+function mkIo(script) {
   const calls = []
-  const ev = []
-  const alerts = []
-  const notes = []
   let state = fleetMachInit
-  let clock = 0
   const handler = async (method, path, body) => {
     calls.push([method, path, body])
     const r = script(method, path, body, calls)
@@ -313,144 +282,11 @@ function mkIo(script, opts = {}) {
   }
   const io = {
     get: (p) => handler('GET', p), post: (p, b) => handler('POST', p, b),
-    dispatch: (e) => { ev.push(e); state = fleetMachReduce(state, e) },
-    probes: () => state.probe, sleep: async (ms) => { clock += ms }, now: () => clock, port: () => '8080',
-    confirm: async (m) => { (opts.confirms = opts.confirms || []).push(m); return opts.confirm !== false },
-    alert: (m) => alerts.push(m), notify: (t, tone) => notes.push([t, tone]), refresh: () => { opts.refreshed = (opts.refreshed || 0) + 1 },
+    dispatch: (e) => { state = fleetMachReduce(state, e) }, now: () => 0, port: () => '8080',
   }
-  return { io, calls, ev, alerts, notes, get state() { return state }, opts }
+  return { io, calls, get state() { return state } }
 }
 const httpErr = (status, body) => Object.assign(new Error(body.message || body.error), { status, body })
-
-test('flow: probe failure is recorded with the server text', async () => {
-  const t = mkIo(() => httpErr(400, { error: 'probe-failed', message: 'ssh timeout' }))
-  await fleetMachFlow(t.io).probe('box')
-  assert.deepEqual(t.state.probe.box, { ok: false, error: 'ssh timeout（probe-failed）' })
-  assert.equal(t.state.probing.box, false)
-})
-
-test('flow: hosts load, including a 200 {ok:false} parse error', async () => {
-  const ok = mkIo(() => ({ ok: true, hosts: [{ alias: 'a' }] }))
-  await fleetMachFlow(ok.io).loadHosts()
-  assert.equal(ok.state.hosts.length, 1)
-  const bad = mkIo(() => ({ ok: false, error: 'parse-error', message: 'bad json' }))
-  await fleetMachFlow(bad.io).loadHosts()
-  assert.equal(bad.state.hostsErr, 'bad json')
-  const down = mkIo(() => httpErr(500, { error: 'x' }))
-  await fleetMachFlow(down.io).loadHosts()
-  assert.equal(down.state.hostsErr, 'x')
-})
-
-test('flow: deploy with relay configured polls the job to done and refreshes the hub', async () => {
-  let polls = 0
-  const t = mkIo((m, p) => {
-    if (p === '/config') return { ok: true, config: { relayUrl: 'ws://r/relay', relayTokenSet: true } }
-    if (m === 'POST' && p === '/ssh-deploy') return { ok: true, jobId: 'job 1' }
-    if (p.startsWith('/ssh-deploy?id=job%201')) { polls += 1; return { ok: true, job: { id: 'job 1', status: polls < 3 ? 'running' : 'done', steps: [{ name: 'connect', status: 'done', log: '' }] } } }
-    return new Error('unexpected ' + p)
-  })
-  await fleetMachFlow(t.io).deploy('box')
-  assert.equal(polls, 3)
-  assert.equal(t.state.job.box.status, 'done')
-  assert.equal(t.state.deploying.box, false)
-  assert.equal(t.opts.refreshed, 1)
-  assert.match(t.notes[0][0], /box 已上桥/)
-  assert.equal(t.calls.filter((c) => c[1] === '/relay-autoconfig').length, 0)
-})
-
-test('flow: no relay configured and none probed -> alert, nothing written, nothing deployed', async () => {
-  const t = mkIo((m, p) => (p === '/config' ? { ok: true, config: { relayUrl: '', relayTokenSet: false } } : new Error('unexpected ' + p)))
-  await fleetMachFlow(t.io).deploy('box')
-  assert.equal(t.alerts.length, 1)
-  assert.match(t.alerts[0], /8890/)
-  assert.equal(t.calls.length, 1)
-})
-
-test('flow: relay auto-configured from a probed relay host (confirmed), then deploy', async () => {
-  let cfgReads = 0
-  const t = mkIo((m, p, body) => {
-    if (p === '/config') { cfgReads += 1; return { ok: true, config: cfgReads === 1 ? { relayUrl: '', relayTokenSet: false } : { relayUrl: 'ws://relayhost:8890/relay', relayTokenSet: true } } }
-    if (p === '/relay-autoconfig') { assert.deepEqual(body, { relayUrl: 'ws://relayhost:8890/relay', autoHubToken: 'tok' }); return { ok: true } }
-    if (m === 'POST' && p === '/ssh-deploy') return { ok: true, jobId: 'j' }
-    if (p.startsWith('/ssh-deploy?id=')) return { ok: true, job: { status: 'done', steps: [] } }
-    return new Error('unexpected ' + p)
-  })
-  t.io.dispatch({ type: 'probe-done', alias: 'relayhost', result: { ok: true, isRelay: true, relayUrl: 'ws://relayhost:8890/relay', relayHubToken: 'tok' } })
-  await fleetMachFlow(t.io).deploy('box')
-  assert.equal(t.state.job.box.status, 'done')
-  assert.equal(t.opts.confirms.length, 1)
-  assert.match(t.opts.confirms[0], /ws:\/\/relayhost:8890\/relay/)
-})
-
-test('flow: declining the relay auto-config stops before any write', async () => {
-  const t = mkIo((m, p) => (p === '/config' ? { ok: true, config: { relayUrl: '', relayTokenSet: false } } : new Error('unexpected ' + p)), { confirm: false })
-  t.io.dispatch({ type: 'probe-done', alias: 'r', result: { ok: true, isRelay: true, relayUrl: 'ws://r:8890/relay' } })
-  await fleetMachFlow(t.io).deploy('box')
-  assert.equal(t.calls.filter((c) => c[0] === 'POST').length, 0)
-})
-
-test('flow: autoconfig failure and still-missing token are surfaced, not swallowed', async () => {
-  const fail = mkIo((m, p) => (p === '/config' ? { ok: true, config: {} } : httpErr(400, { error: 'no-hub-token', message: '中控尚未配置 hubToken' })))
-  fail.io.dispatch({ type: 'probe-done', alias: 'r', result: { ok: true, isRelay: true, relayUrl: 'ws://r:8890/relay' } })
-  await fleetMachFlow(fail.io).deploy('box')
-  assert.match(fail.alerts[0], /自动配置中继失败：中控尚未配置 hubToken（no-hub-token）/)
-  const still = mkIo((m, p) => (p === '/config' ? { ok: true, config: { relayUrl: 'ws://r', relayTokenSet: false } } : { ok: true }))
-  still.io.dispatch({ type: 'probe-done', alias: 'r', result: { ok: true, isRelay: true, relayUrl: 'ws://r:8890/relay' } })
-  await fleetMachFlow(still.io).deploy('box')
-  assert.match(still.alerts[0], /仍缺少 Hub Token/)
-  const noCfg = mkIo(() => httpErr(500, { error: 'boom' }))
-  await fleetMachFlow(noCfg.io).deploy('box')
-  assert.match(noCfg.alerts[0], /读不到主机配置.*boom/)
-})
-
-test('flow: deploy without jobId, poll failures and the 10 minute cap all end in a failed job and a released button', async () => {
-  const noId = mkIo((m, p) => (p === '/config' ? { config: { relayUrl: 'u', relayTokenSet: true } } : { ok: false, message: 'busy' }))
-  await fleetMachFlow(noId.io).deploy('box')
-  assert.equal(noId.state.job.box.error, 'busy')
-  assert.equal(noId.state.deploying.box, false)
-
-  const flaky = mkIo((m, p) => {
-    if (p === '/config') return { config: { relayUrl: 'u', relayTokenSet: true } }
-    if (m === 'POST') return { jobId: 'j' }
-    return httpErr(404, { error: 'not-found', message: "jobId 'j' 不存在" })
-  })
-  await fleetMachFlow(flaky.io).deploy('box')
-  assert.equal(flaky.calls.filter((c) => c[0] === 'GET' && c[1].startsWith('/ssh-deploy')).length, 3)
-  assert.match(flaky.state.job.box.error, /读取上桥进度失败/)
-  assert.equal(flaky.state.deploying.box, false)
-
-  const forever = mkIo((m, p) => {
-    if (p === '/config') return { config: { relayUrl: 'u', relayTokenSet: true } }
-    if (m === 'POST') return { jobId: 'j' }
-    return { job: { status: 'running', steps: [] } }
-  })
-  await fleetMachFlow(forever.io).deploy('box')
-  assert.match(forever.state.job.box.error, /超过 10 分钟/)
-  assert.equal(forever.state.deploying.box, false)
-})
-
-test('flow: install asks first, then reprobes; failure keeps the server message', async () => {
-  const no = mkIo(() => new Error('should not be called'), { confirm: false })
-  await fleetMachFlow(no.io).install('box')
-  assert.equal(no.calls.length, 0)
-  assert.match(no.opts.confirms[0], /「box」.*Node\.js LTS/)
-
-  const ok = mkIo((m, p, body) => {
-    if (p === '/ssh-deploy/install-runtime') { assert.deepEqual(body, { alias: 'box', confirm: 'yes' }); return { ok: true, steps: [] } }
-    return { ok: true, missing: [] }
-  })
-  await fleetMachFlow(ok.io).install('box')
-  assert.deepEqual(ok.calls.map((c) => c[1]), ['/ssh-deploy/install-runtime', '/ssh-probe'])
-  assert.equal(ok.state.installing.box, false)
-  assert.equal(ok.state.installErr.box, '')
-
-  const bad = mkIo(() => ({ ok: false, error: 'host-not-found', message: "alias 'box' 不在 dsh-ssh.json 中" }))
-  await fleetMachFlow(bad.io).install('box')
-  assert.match(bad.state.installErr.box, /不在 dsh-ssh\.json/)
-  const thrown = mkIo(() => httpErr(400, { error: 'confirm-required', message: '必须传 confirm' }))
-  await fleetMachFlow(thrown.io).install('box')
-  assert.match(thrown.state.installErr.box, /必须传 confirm（confirm-required）/)
-})
 
 test('flow: pair info and enrollment token', async () => {
   const t = mkIo((m, p) => {
@@ -649,27 +485,13 @@ test('machines: discovery card toggles, scans and filters', () => {
   assert.match(textOf(render('Machines', props(mkHub({ discovery: { enabled: false, configured: true, peers: [] } })))), /发现监听未启动/)
 })
 
-test('machines: component state from the store drives ssh and enrollment views', () => {
+test('machines: component state from the store drives the pair and enrollment views', () => {
   const state = Object.assign({}, fleetMachInit, {
-    hosts: [{ alias: 'box', host: '10.0.0.5', port: 22, user: 'root', description: '备用机' }, { alias: 'lab', host: '10.0.0.6', port: 2222, user: 'dev' }],
-    probe: { box: { ok: true, os: 'Linux', node: 'v20.1.0', npm: '10', dsh: null, missing: ['dsh'], isRelay: false }, lab: { ok: true, os: 'Linux', node: 'v20', missing: [], isRelay: false, dsh: '0.2.2' } },
-    job: { lab: { id: 'j', status: 'failed', error: '等待节点上线超时', steps: [{ name: 'connect', status: 'done', log: '连接成功\n' }, { name: 'wait-online', status: 'failed', log: '超时' }] } },
-    installErr: { box: 'npm 失败' },
     pair: { loading: false, note: '', data: { ok: true, listener: { host: '10.0.0.1', port: 19387, hint: '独立监听尚未就绪' }, note: '配对码不含 token', codes: [{ address: '10.0.0.1', name: 'en0', private: true, usable: true, pairCode: 'PAIRCODE', hubUrl: 'ws://10.0.0.1:19387' }] } },
     enroll: { loading: false, error: '', data: { token: 'TOKEN-XYZ', expiresAt: Date.now() + 600000, expiresInMs: 900000 } },
   })
   // useMach's useState is the first hook in Machines
   const { tree, text } = view('Machines', props(mkHub()), [state])
-  assert.match(text, /box.*root@10\.0\.0\.5:22/)
-  assert.match(text, /缺运行环境/)
-  assert.match(text, /缺少：dsh/)
-  assert.match(text, /安装失败：npm 失败/)
-  assert.match(text, /环境就绪/)
-  assert.match(text, /✔连接 SSH连接成功/)
-  assert.match(text, /✘等待节点上线超时/)
-  assert.match(text, /✘ 等待节点上线超时/)
-  assert.equal(buttonsIn(tree, '安装运行环境').length, 1)
-  assert.equal(buttonsIn(tree, '上桥').filter((b) => textOf(b) === '上桥').length, 1) // only the ready host can be bridged
   assert.match(text, /监听 10\.0\.0\.1:19387/)
   assert.match(text, /独立监听尚未就绪/)
   assert.match(text, /配对码不含 token/)
@@ -680,18 +502,13 @@ test('machines: component state from the store drives ssh and enrollment views',
   assert.equal(findAll(tree, (n) => n.props && n.props.className === 'fl-token').length, 1)
   const expired = view('Machines', props(mkHub()), [Object.assign({}, state, { enroll: { loading: false, error: '', data: { token: 'T', expiresAt: 1, expiresInMs: 1000 } } })]).text
   assert.match(expired, /已过期，请重新生成/)
-  const errState = view('Machines', props(mkHub()), [Object.assign({}, state, { hosts: [], hostsErr: 'parse-error', enroll: { loading: false, data: null, error: '铸造失败：未配置中继（not-relay）' } })]).text
-  assert.match(errState, /主机列表读取失败：parse-error/)
+  const errState = view('Machines', props(mkHub()), [Object.assign({}, state, { enroll: { loading: false, data: null, error: '铸造失败：未配置中继（not-relay）' } })]).text
   assert.match(errState, /铸造失败：未配置中继（not-relay）/)
-  // hosts never loaded and no error: the card stays out of the way
-  assert.doesNotMatch(textOf(render('Machines', props(mkHub()))), /SSH 一键上桥/)
 })
 
-test('flow: the deploy button is held for the whole flow, including early exits', async () => {
-  const t = mkIo((m, p) => (p === '/config' ? { config: { relayUrl: '', relayTokenSet: false } } : new Error('unexpected ' + p)))
-  await fleetMachFlow(t.io).deploy('box')
-  assert.deepEqual(t.ev.map((e) => e.type), ['deploy-start', 'deploy-end'])
-  assert.equal(t.state.deploying.box, false)
+test('machines: the screen has no SSH one-click section, whatever state it is in', () => {
+  const text = textOf(render('Machines', props(mkHub())))
+  assert.doesNotMatch(text, /SSH|上桥|安装运行环境/)
 })
 
 test('reducer: refreshing the pair info keeps the codes already on screen', () => {

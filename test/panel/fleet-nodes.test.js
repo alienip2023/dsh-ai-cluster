@@ -377,24 +377,6 @@ test('card: a link-coloured top light bar class per link category, a breathing s
   assert.match(css, /\.fl-card\{[^}]*border-radius:var\(--dra-r-lg\)[^}]*var\(--dra-glass\)/)
   assert.match(css, /\.fl-bar\{[^}]*border-radius:var\(--dra-r-pill\)/)
   assert.match(css, /\.fl-bar>i\{[^}]*linear-gradient/)
-  assert.match(css, /\.fl-host\{[^}]*border-radius:var\(--dra-r-md\)/) // radius hierarchy: cards lg, inset groups md
+  assert.match(css, /\.fl-detail\{[^}]*border-radius:var\(--dra-r-md\)/) // radius hierarchy: cards lg, inset panels md
   assert.doesNotMatch(css, /:hover\{[^}]*translate/)
-})
-
-test('ssh timeline: the first unfinished step of a running deploy shimmers; a finished or failed job has no moving step', () => {
-  const steps = [{ name: 'connect', status: 'done', log: '' }, { name: 'probe', status: 'done', log: '' }, { name: 'upload', status: 'pending', log: '' }, { name: 'install', status: 'pending', log: '' }]
-  const base = { hosts: [{ alias: 'box', host: '192.168.1.9', port: 22, user: 'u' }], probe: { box: { ok: true, missing: [] } } }
-  const rows = (job) => {
-    const core = makeCore({ state: [Object.assign({}, fleetMachInit, base, { job: { box: job } })] })
-    const tree = expand(core.h(createFleet(core).Machines, props(mkHub([]))))
-    return findAll(tree, (n) => typeof n.props.className === 'string' && /^fl-step /.test(n.props.className)).map((r) => r.props.className)
-  }
-  const running = rows({ status: 'running', steps })
-  assert.deepEqual(running.map((c) => /\bcur\b/.test(c)), [false, false, true, false])
-  assert.match(running[2], /dra-shimmer/)
-  assert.ok(!rows({ status: 'failed', error: 'x', steps }).some((c) => /\bcur\b/.test(c)))
-  assert.ok(!rows({ status: 'done', steps: steps.map((s) => ({ ...s, status: 'done' })) }).some((c) => /\bcur\b/.test(c)))
-  const css = fleetCss.join('')
-  assert.match(css, /\.fl-timeline\{[^}]*flex-direction:column/)
-  assert.match(css, /\.fl-step::before\{[^}]*width:2px/) // the vertical rail
 })

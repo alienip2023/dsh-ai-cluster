@@ -30,27 +30,6 @@ test('B2（变异验证）：删掉 relay token 写入后断言红', () => {
   assert.ok(!mutant.includes('relayToken = str(body.hubToken)'), '变异后不含 relayToken 赋值')
 })
 
-/* ── Bug 3: ssh-onboard 与 /ui/config 走同一份 relay 读取口径 ─────────── */
-
-function assertOnboardReads(source) {
-  assert.ok(source.includes('readRelayToken(config)'), 'ssh-onboard 应走 readRelayToken(config)')
-  assert.ok(source.includes('readRelayUrl(config)'), 'ssh-onboard 应走 readRelayUrl(config)')
-}
-
-test('B3: ssh-onboard 走 readRelayToken / readRelayUrl', () => {
-  const s = readFileSync(fileURLToPath(new URL('../lib/hub/ssh-onboard.js', import.meta.url)), 'utf-8')
-  assertOnboardReads(s)
-})
-
-test('B3（变异验证）：删掉 readRelayToken(config) 后断言红', () => {
-  const s = readFileSync(fileURLToPath(new URL('../lib/hub/ssh-onboard.js', import.meta.url)), 'utf-8')
-  const mutant = s.replace('readRelayToken(config)', 'readRelayToken_DELETED(config)')
-  assert.throws(
-    () => assertOnboardReads(mutant),
-    '变异后 B3 主断言必须失败',
-  )
-})
-
 /* ── ra18-3: hubUrl 显式非空 + hasRelay 时不走 auto-infer worker ──────── */
 
 test('ra18-3: hubUrl 非空且有 relay 时不推断为 worker', () => {

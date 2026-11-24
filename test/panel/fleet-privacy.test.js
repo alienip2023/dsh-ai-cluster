@@ -6,7 +6,7 @@ import test from 'node:test'
 import { makeCore, expand, texts, findAll } from './_fake.js'
 import { dataEmptyHub } from '../../src/panel/data.js'
 import {
-  createFleet, fleetDiscoveryRows, fleetHostOf, fleetListenerNotice, fleetMachFlow, fleetMachInit, fleetMachReduce, fleetMask, fleetMaskHost, fleetMaskText,
+  createFleet, fleetDiscoveryRows, fleetHostOf, fleetListenerNotice, fleetMachInit, fleetMask, fleetMaskHost, fleetMaskText,
   fleetNotices, fleetPrefKey, fleetProbeRows, fleetPublicHost, fleetShowAddr, fleetTunnelLine,
 } from '../../src/panel/fleet.js'
 
@@ -69,10 +69,10 @@ test('mask: the switch decides; showing returns the original text byte for byte'
 })
 
 test('mask text: addresses inside free text are masked, everything else is left alone', () => {
-  const t = '连接 203.0.113.9:8890 失败，回退 relay.example.com，LAN 192.168.1.5 与 nas.local 正常；见 wss://relay.example.com:8890/relay?token=abc。版本 0.4.36，时间 12:30:45，文件 dsh-ssh.json，地址不能是 0.0.0.0，主机 hub:19387'
+  const t = '连接 203.0.113.9:8890 失败，回退 relay.example.com，LAN 192.168.1.5 与 nas.local 正常；见 wss://relay.example.com:8890/relay?token=abc。版本 0.4.36，时间 12:30:45，文件 settings.json，地址不能是 0.0.0.0，主机 hub:19387'
   const m = fleetMaskText(t, false)
   for (const gone of ['203.0.113.9', 'example.com', 'token=abc', '/relay?']) assert.ok(!m.includes(gone), gone)
-  for (const kept of ['203.•••:8890', 'relay.•••', '192.168.1.5', 'nas.local', 'wss://relay.•••:8890', '0.4.36', '12:30:45', 'dsh-ssh.json', '0.0.0.0', 'hub:19387']) assert.ok(m.includes(kept), kept)
+  for (const kept of ['203.•••:8890', 'relay.•••', '192.168.1.5', 'nas.local', 'wss://relay.•••:8890', '0.4.36', '12:30:45', 'settings.json', '0.0.0.0', 'hub:19387']) assert.ok(m.includes(kept), kept)
   assert.equal(fleetMaskText(t, true), t)
   assert.equal(fleetMaskText(null, false), '')
   assert.equal(fleetMaskText('绑定 2001:db8::1 失败', false), '绑定 2001:••• 失败')
@@ -84,7 +84,7 @@ const PUB_IP = '203.0.113.8'
 const PUB_HOST = 'relay.example.com'
 const PUB_URL = 'wss://relay.example.com:8890/relay'
 const PUB_REMOTE = '198.51.100.7:51234'
-const SECRETS = [PUB_IP, PUB_HOST, 'example.com', '198.51.100.7', '203.0.113.9', '198.51.100.9', 'secret-path']
+const SECRETS = [PUB_IP, PUB_HOST, 'example.com', '198.51.100.7', '203.0.113.9', '198.51.100.9']
 
 const nodePub = {
   nodeId: 'node-alpha-0001', hostname: 'alpha', peerHost: PUB_IP, online: true, os: 'linux', arch: 'x64', transportMode: 'direct', taskCount: 1,
@@ -225,25 +225,7 @@ test('banners: reachability, listener and diagnosis text follow the switch', () 
   assert.ok(fleetListenerNotice({ ok: false, error: 'bind ' + PUB_IP }, NOW, true).body.includes(PUB_IP))
 })
 
-/* ── SSH 与添加机器 ──────────────────────────────────────────────── */
-
-const sshState = (showPublic) => Object.assign({}, fleetMachInit, {
-  showPublic,
-  hosts: [{ alias: 'box', host: PUB_IP, port: 22, user: 'root' }, { alias: 'lan', host: '192.168.1.40', port: 22, user: 'dev' }],
-  probe: { box: { ok: false, error: 'probe-failed', message: 'timeout connecting to ' + PUB_IP + ':22' } },
-  job: { lan: { status: 'failed', error: 'cannot reach ' + PUB_HOST, steps: [{ name: 'connect', status: 'failed', log: 'dial tcp 203.0.113.9:22: i/o timeout' }] } },
-  installErr: { box: 'npm install from https://registry.example.com/secret-path failed' },
-})
-
-test('ssh hosts: the host, probe errors, job logs and install errors are masked while hidden and shown with the switch', () => {
-  const off = surface(withState('Machines', mkHub({ nodes: [] }), [sshState(false)]))
-  assert.deepEqual(SECRETS.filter((x) => off.includes(x)), [])
-  assert.ok(off.includes('root@203.•••:22'))
-  assert.ok(off.includes('dev@192.168.1.40:22')) // LAN host stays
-  assert.ok(off.includes('box') && off.includes('lan')) // aliases are the user's own labels
-  const on = surface(withState('Machines', mkHub({ nodes: [] }), [sshState(true)]))
-  for (const shown of ['root@' + PUB_IP + ':22', 'timeout connecting to ' + PUB_IP + ':22', 'cannot reach ' + PUB_HOST, 'dial tcp 203.0.113.9:22', 'registry.example.com/secret-path']) assert.ok(on.includes(shown), shown)
-})
+/* ── 添加机器 ──────────────────────────────────────────────────────── */
 
 const pairState = (showPublic, hubUrl, code) => Object.assign({}, fleetMachInit, {
   showPublic,
@@ -306,37 +288,17 @@ test('connection attempts: the remote is masked, the node id and LAN remotes are
   assert.ok(t.includes('192.168.1.20:5000'))
 })
 
-/* ── 弹窗文案与流程 ──────────────────────────────────────────────── */
-
-function flowIo(show) {
-  const confirms = []
-  const alerts = []
-  let state = fleetMachInit
-  const io = {
-    get: async (p) => { if (p === '/config') return { config: { relayUrl: '', relayTokenSet: false } }; throw Object.assign(new Error('x'), {}) },
-    post: async () => { throw Object.assign(new Error('refused by ' + PUB_IP), { body: { error: 'denied', message: 'refused by ' + PUB_IP } }) },
-    dispatch: (e) => { state = fleetMachReduce(state, e) }, probes: () => state.probe, show: () => show,
-    sleep: async () => {}, now: () => 0, port: () => '', confirm: async (m) => { confirms.push(m); return true }, alert: (m) => alerts.push(m), notify: noop, refresh: noop,
-  }
-  io.dispatch({ type: 'probe-done', alias: 'r', result: { ok: true, isRelay: true, relayUrl: PUB_URL + '?token=zzz', relayHubToken: 'hub-secret' } })
-  return { io, confirms, alerts }
-}
-
-test('dialogs: the relay URL in the confirmation and errors in alerts follow the switch at the moment they are shown', async () => {
-  const hidden = flowIo(false)
-  await fleetMachFlow(hidden.io).deploy('box')
-  assert.ok(hidden.confirms[0].includes('wss://relay.•••:8890'))
-  assert.ok(!hidden.confirms[0].includes('example.com') && !hidden.confirms[0].includes('zzz'))
-  assert.ok(hidden.alerts[0].includes('203.•••') && !hidden.alerts[0].includes(PUB_IP))
-  const shown = flowIo(true)
-  await fleetMachFlow(shown.io).deploy('box')
-  assert.ok(shown.confirms[0].includes(PUB_URL))
-  assert.ok(shown.alerts[0].includes(PUB_IP))
-  // an io without a switch (older callers) is treated as hidden
-  const bare = flowIo(undefined)
-  delete bare.io.show
-  await fleetMachFlow(bare.io).deploy('box')
-  assert.ok(!bare.confirms[0].includes('example.com'))
+test('pair-info and enrollment failures: addresses inside the error text follow the switch', () => {
+  const failing = (showPublic) => Object.assign({}, fleetMachInit, {
+    showPublic,
+    pair: { loading: false, data: null, note: '配对码读取失败：连不上 ' + PUB_IP + ':19387' },
+    enroll: { loading: false, data: null, error: '铸造失败：中继 ' + PUB_URL + ' 不可达' },
+  })
+  const off = surface(withState('Machines', mkHub({ nodes: [] }), [failing(false)]))
+  assert.deepEqual(SECRETS.filter((x) => off.includes(x)), [])
+  assert.ok(off.includes('连不上 203.•••:19387') && off.includes('wss://relay.•••:8890'))
+  const on = surface(withState('Machines', mkHub({ nodes: [] }), [failing(true)]))
+  assert.ok(on.includes(PUB_IP + ':19387') && on.includes(PUB_URL))
 })
 
 /* ── 记住开关 ────────────────────────────────────────────────────── */
