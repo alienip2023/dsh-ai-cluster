@@ -50,11 +50,11 @@ test('registry exposes the same object under both names and can be exposed again
   assert.equal(ctx.services.size, 0)
 })
 
-test('owned service table is read-only and contains eight aliases', () => {
+test('owned service table is read-only and contains nine aliases', () => {
   assert.ok(Object.isFrozen(PROVIDED_SERVICE_SUFFIXES))
   assert.ok(Object.isFrozen(SERVICE_ALIASES))
-  assert.equal(PROVIDED_SERVICE_SUFFIXES.length, 8)
-  assert.equal(Object.keys(SERVICE_ALIASES).length, 8)
+  assert.equal(PROVIDED_SERVICE_SUFFIXES.length, 9)
+  assert.equal(Object.keys(SERVICE_ALIASES).length, 9)
 })
 
 for (const suffix of PROVIDED_SERVICE_SUFFIXES) {

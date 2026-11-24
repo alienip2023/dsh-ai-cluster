@@ -9,7 +9,7 @@ import { PROVIDED_SERVICE_SUFFIXES } from '../../src/compat/ra-names.js'
 import { makeCtx } from './_plugin-ctx.js'
 
 const owned = {
-  hub: ['registry', 'tasks', 'bot-network', 'config-sync', 'role'],
+  hub: ['registry', 'tasks', 'bot-network', 'config-sync', 'role', 'bot-identity'],
   worker: ['jobs', 'bot-network', 'memory-link', 'node-policy', 'role'],
   both: PROVIDED_SERVICE_SUFFIXES,
 }

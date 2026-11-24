@@ -167,7 +167,10 @@ function botNetworkString(value, max) {
 function botNetworkIdentity(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   if (!botNetworkString(value.id, 200) || !botNetworkString(value.name, 80) || !botNetworkString(value.nodeId, 80)) return null
-  return { id: value.id, name: value.name, nodeId: value.nodeId }
+  const identity = { id: value.id, name: value.name, nodeId: value.nodeId }
+  // A Bot's portable id (16 hex, ed25519 fingerprint): the key every machine knows the Bot by.
+  if (typeof value.identityId === 'string' && /^[0-9a-f]{16}$/.test(value.identityId)) identity.identityId = value.identityId
+  return identity
 }
 
 /** 校验并重建 bot/message；坏帧抛出稳定错误，不透传未知字段。 */
@@ -181,7 +184,19 @@ export function validateBotMessage(d) {
   return { exchangeId: d.exchangeId, kind: d.kind, from, to, text: d.text, depth: d.depth }
 }
 
-/** 目录最多 500 项；坏条目丢弃，身份上限与 bot/message 一致，role 可省略或为空。 */
+/** bot/directory 里 Bot 的状态：空闲 / 干活中 / 等人 / 离线。 */
+export const BOT_DIRECTORY_STATES = Object.freeze(['available', 'working', 'waiting', 'offline'])
+/** bot/directory 里机器列表的上限（主控 + 节点）。 */
+export const BOT_DIRECTORY_MAX_MACHINES = 64
+
+function directoryText(value, max) {
+  return typeof value === 'string' ? value.trim().slice(0, max) : ''
+}
+
+/**
+ * 全队目录（主控 → 节点）：Bot 最多 500 项，坏条目丢弃，身份上限与 bot/message 一致，role 可省略或为空；
+ * 每个 Bot 可带 identityId / hostname / online / state / model；machines 是全队机器列表。
+ */
 export function validateBotDirectory(d) {
   if (!d || typeof d !== 'object' || Array.isArray(d) || !Array.isArray(d.bots) || d.bots.length > 500) {
     throw new RemoteAgentError('invalid bot/directory payload', 'bot-directory-invalid')
@@ -190,7 +205,14 @@ export function validateBotDirectory(d) {
   for (const raw of d.bots) {
     const identity = botNetworkIdentity(raw)
     if (!identity || (raw.role != null && typeof raw.role !== 'string')) continue
-    bots.push({ ...identity, role: raw.role ?? '' })
+    const bot = { ...identity, role: raw.role ?? '' }
+    const hostname = directoryText(raw.hostname, 80)
+    if (hostname !== '') bot.hostname = hostname
+    if (typeof raw.online === 'boolean') bot.online = raw.online
+    if (BOT_DIRECTORY_STATES.includes(raw.state)) bot.state = raw.state
+    const model = directoryText(raw.model, 120)
+    if (model !== '') bot.model = model
+    bots.push(bot)
   }
   const rooms = []
   for (const raw of Array.isArray(d.rooms) ? d.rooms.slice(0, 100) : []) {
@@ -202,7 +224,23 @@ export function validateBotDirectory(d) {
     if (raw.members !== undefined) room.members = raw.members
     rooms.push(room)
   }
-  return { bots, rooms, at: Number.isFinite(d.at) ? d.at : Date.now() }
+  const out = { bots, rooms, at: Number.isFinite(d.at) ? d.at : Date.now() }
+  if (!Array.isArray(d.machines)) return out
+  const machines = []
+  for (const raw of d.machines.slice(0, BOT_DIRECTORY_MAX_MACHINES)) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw) || !botNetworkString(raw.nodeId, 80)) continue
+    const machine = { nodeId: raw.nodeId, hostname: directoryText(raw.hostname, 80) || raw.nodeId, online: raw.online === true }
+    const os = directoryText(raw.os, 40)
+    if (os !== '') machine.os = os
+    const acVersion = directoryText(raw.acVersion, 40)
+    if (acVersion !== '') machine.acVersion = acVersion
+    if (['hub', 'both', 'worker'].includes(raw.role)) machine.role = raw.role
+    if (Number.isFinite(raw.lastSeen) && raw.lastSeen >= 0) machine.lastSeen = raw.lastSeen
+    if (Number.isFinite(raw.rttMs) && raw.rttMs >= 0) machine.rttMs = Math.round(raw.rttMs)
+    machines.push(machine)
+  }
+  out.machines = machines
+  return out
 }
 
 /**

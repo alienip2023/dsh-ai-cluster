@@ -67,7 +67,7 @@ test('6 directory events carry isolated bots and rooms snapshots', t => {
   let events = 0
   network.on('directory', value => {
     events++
-    assert.deepEqual(value, { bots: [bot], rooms: [room] })
+    assert.deepEqual(value, { bots: [bot], rooms: [room], machines: [] })
     value.bots[0].name = 'changed'
     value.rooms[0].name = 'changed'
     value.rooms.pop()
