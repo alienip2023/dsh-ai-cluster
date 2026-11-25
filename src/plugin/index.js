@@ -343,12 +343,12 @@ export const Config = z.object({
     .description('单个 TCP 探测的截止时间（毫秒），含 DNS 等待。'),
   sakuraLogTailLines: z.number().default(200)
     .description('最新樱花日志采样的末尾行数；仅读取，不启动或修改隧道。'),
-  peerDirect: z.boolean().default(false)
-    .description('开启 Bot 对话对等直连；失败时回落主机路径。'),
+  peerDirect: z.boolean().default(true)
+    .description('节点之间直连（协作工作帧 + Bot 对话）；连不上自动经主控中转。主控停机时已配对的节点照常协作。'),
   peerListenPort: z.number().default(19388)
     .description('Bot 对等直连监听端口；0 = 自动分配。'),
   peerListenHost: z.string().default('')
-    .description('Bot 对等直连绑定的具体本机 IP；留空自动选路。'),
+    .description('节点直连绑定的本机 IP；留空取与主控同网段的地址。'),
   relayUrl: z
     .string()
       .default('')

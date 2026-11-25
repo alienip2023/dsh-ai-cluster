@@ -352,7 +352,8 @@ async function until(predicate, message, timeoutMs = 8000) {
 test('hub -> node over a real link: bot/attach is sealed, and a turn that names attachments takes the hub link behind its chunks even when peer-direct is on', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ra-attach-'))
   const logs = []
-  const registry = new NodeRegistry({ identity: generateIdentity(), log: (...a) => logs.push(a) })
+  // The hub's own dials to nodes are opt-in since AC 0.4.40; this checks the attach ordering with them on.
+  const registry = new NodeRegistry({ identity: generateIdentity(), log: (...a) => logs.push(a), peerDirectHub: true })
   const hubFrames = []
   const originalHubSend = registry.sendViaHub.bind(registry)
   registry.sendViaHub = (nodeId, type, ...args) => { hubFrames.push({ nodeId, type }); return originalHubSend(nodeId, type, ...args) }

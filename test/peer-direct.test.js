@@ -13,6 +13,7 @@ import { startListenServer } from '../lib/listen-server.js'
 import { createPeerRouter, PeerLink } from '../lib/node/peer-link.js'
 import { attachPeerConnection, startPeerListener, validPeerSecret } from '../lib/node/peer-listener.js'
 import { createTurnReplay } from '../lib/node/turn-replay.js'
+import { helloProof } from '../lib/node/peer-auth.js'
 import { createFrameDispatcher } from '../lib/node/dispatch.js'
 import { BOT_MESSAGE_REPLAY_MS } from '../lib/node/bot-network.js'
 import { NodeRegistry } from '../lib/hub/node-registry.js'
@@ -95,8 +96,15 @@ class FakeConn extends EventEmitter {
   close() { this.closed = true; this.emit('close') }
   destroy() { this.close() }
 }
-const hello = (data = {}) => envelope(PEER.HELLO, { nodeId: 'a', protocol: PROTOCOL_VERSION, time: Date.now(),
+// The hub dials with this node's secret; a node proves the key of the pair (AC 0.4.40, test/peer-pair-direct.test.js).
+const hello = (data = {}) => envelope(PEER.HELLO, { nodeId: '@hub', protocol: PROTOCOL_VERSION, time: Date.now(),
   secret, pub: generateEphemeral().publicKeyB64, ...data })
+const pairKey = 'cd'.repeat(32)
+const pairedHello = (from = 'a', to = 'b') => {
+  const time = Date.now()
+  const pub = generateEphemeral().publicKeyB64
+  return envelope(PEER.HELLO, { nodeId: from, protocol: PROTOCOL_VERSION, time, pub, proof: helloProof(pairKey, { from, to, time, pub }) })
+}
 
 test('peer secret rejects wrong, missing, empty and malformed credentials without logging secrets', () => {
   for (const received of [undefined, null, '', 'x', 'cd'.repeat(32), 'ab'.repeat(31), '中'.repeat(64), [], {}]) {
@@ -133,8 +141,8 @@ test('peer hello is mandatory within five seconds; wrong protocol is rejected', 
 test('peer whitelist rejects task, control, unknown and binary frames after authentication', () => {
   for (const type of ['task/start', 'task/cancel', 'fs/req', PEER.DIRECTORY, PEER.HELLO, 'unknown', 'binary']) {
     const conn = new FakeConn()
-    attachPeerConnection(conn, { nodeId: 'b', getSecret: () => secret, onFrame: () => assert.fail('forbidden dispatch') })
-    conn.emit('message', encodeFrame(hello()), false)
+    attachPeerConnection(conn, { nodeId: 'b', getSecret: () => secret, getPairKey: id => (id === 'a' ? pairKey : undefined), onFrame: () => assert.fail('forbidden dispatch') })
+    conn.emit('message', encodeFrame(pairedHello()), false)
     assert.equal(conn.sent[0].t, PEER.WELCOME)
     conn.emit('message', type === 'binary' ? Buffer.from('bad') : encodeFrame(envelope(type, {})), type === 'binary')
     assert.equal(conn.sent.at(-1).d.code, 'peer-frame-forbidden')
@@ -267,9 +275,9 @@ test('disconnect replay of Bot messages expires within the receiver dedupe windo
 for (const mode of ['tcp', 'memory']) test(`PeerLink is lazy, shares concurrent dial, encrypts Bot frames and measures heartbeat RTT (${mode})`, async t => {
   if (mode === 'memory') useMemoryNetwork(t)
   const received = []
-  const listener = await startPeerListener({ nodeId: 'b', host: '127.0.0.1', port: 0, getSecret: () => secret,
+  const listener = await startPeerListener({ nodeId: 'b', host: '127.0.0.1', port: 0, getSecret: () => secret, getPairKey: id => (id === 'a' ? pairKey : undefined),
     onFrame: (frame, reply) => { received.push(frame); reply('bot/turn-result', { exchangeId: frame.d.exchangeId }) } })
-  const link = new PeerLink({ nodeId: 'a', remoteNodeId: 'b', url: listener.url, secret, heartbeatMs: 10 })
+  const link = new PeerLink({ nodeId: 'a', remoteNodeId: 'b', url: listener.url, pairKey, heartbeatMs: 10 })
   t.after(async () => { link.stop(); await listener.close() })
   assert.equal(link.state, 'idle')
   const p1 = link.ready()
@@ -347,7 +355,8 @@ for (const mode of ['tcp', 'memory']) test(`one hub and two assembled workers us
   })
   const originalOn = NodeTransport.prototype.on
   t.mock.method(NodeTransport.prototype, 'on', function (...args) { transports.set(this.hello.nodeId, this); return originalOn.apply(this, args) })
-  const registry = new NodeRegistry({ identity: generateIdentity(), log: (...args) => logs.push(args) })
+  // The hub's own dials are opt-in since AC 0.4.40 (node ↔ node is the default direct path).
+  const registry = new NodeRegistry({ identity: generateIdentity(), log: (...args) => logs.push(args), peerDirectHub: true })
   const originalHubSend = registry.sendViaHub.bind(registry)
   registry.sendViaHub = (nodeId, type, ...args) => { hubFrames.push({ nodeId, type }); return originalHubSend(nodeId, type, ...args) }
   const hub = await startListenServer({ host: '127.0.0.1', port: 0, path: '/api/remote-agent/node',
@@ -449,7 +458,12 @@ for (const mode of ['tcp', 'memory']) test(`one hub and two assembled workers us
   assert.equal(turns, 4)
   assert.equal(hubFrames.slice(fallbackStart).filter(frame => frame.type === 'bot/turn').length, 2)
   assert.equal(logs.some(args => args.includes('peer-direct-fallback')), true)
+  // AC 0.4.40: a node that goes offline stays in the others' books (it may come back while the hub is away); revoking
+  // its keys takes it out.
   registry.markOffline('b', 'test authority')
-  await until(() => contexts[0].get('remote-agent:peer-direct').snapshot().peers.length === 0, 'offline removes directory')
   assert.equal(registry.nodes.get('b').online, false)
+  await tick()
+  assert.equal(contexts[0].get('remote-agent:peer-direct').snapshot().peers.length, 1)
+  registry.revokePeer('b')
+  await until(() => contexts[0].get('remote-agent:peer-direct').snapshot().peers.length === 0, 'revoked node leaves the directory')
 })

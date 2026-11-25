@@ -35,6 +35,34 @@
 节点 `post(type, data, { to: 'node010' })` → 主控收下后把它记成自己发往 node010 的未确认消息（沿用同一 `rid`）→ 回 ack 给来源节点
 → node010 就绪时送达。目标离线多久都留在主控，没有超时、没有 bounce。
 
+## 节点 ↔ 节点直连（AC 0.4.40）
+
+代码：`lib/node/peer-auth.js`（成对密钥、握手证明、节点地址簿）、`lib/node/peer-link.js`（`PeerLink`/路由器）、
+`lib/node/peer-listener.js`、`lib/reliable-wire.js`（选路）。测试：`test/peer-pair-direct.test.js`（REL-P1..P10）。
+
+- **默认开**（`peerDirect`，可设 `false` 关）。节点在与主控同一 /24 的本机地址上监听 19388（`peerListenHost` / `peerListenPort` 可改）。
+  节点之间要放行这个端口（仅集群网段）。
+- **成对密钥**：主控为每对节点 (A, B) 生成一把密钥，存在 `<stateDir>/peer-pair-keys.json`（0600），只经 E2E 的主控链路
+  （`peer/welcome` 的 `credentials: [{ nodeId, pairKey }]`）发给 A 和 B。目录（`peer/directory`）只有地址。
+- **握手**：拨号方发 `peer/hello { nodeId, time, pub, proof }`，`proof = HMAC(K_AB, 'peer-hello/2', from, to, time, pub)`；
+  监听方按"自称的 nodeId"取那一对的密钥核对（时间差 ≤ 5 分钟），回 `peer/welcome { proof }`，
+  其中 `proof = HMAC(K_AB, 'peer-welcome/2', from, to, 拨号方 pub, 自己 pub)`，拨号方核对。密钥本身从不上线；拿着 (A, C)
+  的密钥冒充 B 会被拒；不知道密钥的一方答不上 welcome。主控自己拨节点仍用旧的节点 secret（`@hub`，默认不开：`peerDirectHub`）。
+- **地址簿**：节点把目录和成对密钥存到 `<stateDir>/peers.json`（0600）。主控断开时不清空，所以**主控停机时已配对的节点照常直连**。
+  主控每次下发的目录与密钥整份替换地址簿；主控 `revokePeer(nodeId)` 销毁该节点的所有成对密钥，其他节点下次收到目录时把它删掉
+  （主控停机期间无法吊销；该节点再次连上主控时换发新密钥）。
+- **选路**（节点发往另一节点，`post(type, data, { to })`）：
+  1. 直连已通 → 直发，对方直接 ack。
+  2. 直连正在建立 → 等它（最多 10 s，`DIRECT_FAILOVER_MS`），连上即发；超时则经主控。
+  3. 没有直连（对方没有地址或密钥、最近拨号失败）→ 立刻经主控（帧带 `to`，同一 `rid`）。
+  4. 重发（10 s 内没有 ack）：主控在线就经主控；主控不在就只走直连。
+  5. 两条路都不通 → 留在本机，不计次、不计时，任一条路恢复就发。
+  同一 `rid` 无论从哪条路到达，接收方只处理一次；哪条路来的 ack 都算数。
+- **发送方身份**：直连来的帧，发送方就是握手认出的那个节点；帧里自称的 `from` 只在主控转发来的帧里有效，直连的一律忽略。
+  只有主控转发（节点收到带 `to` 的直连帧不转发）。
+- **统计**：`remote-agent:peer-direct` 的 `snapshot().peers[].routes = { direct, viaHub, lastDirectAt }`，随自检与状态上报给主控。
+- **与旧节点混跑**：0.4.39 节点没有成对密钥 → 一律经主控，功能不变。
+
 ## 宿主接口（bot-network 服务上）
 
 主控：`post(nodeId, type, data)`、`onReliable(type, handler)`、`reliablePending(peer?)`。
